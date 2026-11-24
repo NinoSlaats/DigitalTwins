@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Digitale Dorpskaart Vlodrop</title>
+
+  <!-- Leaflet: de kaartbibliotheek (stijlen) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+  <style>
+    html, body { height: 100%; margin: 0; font-family: Arial, sans-serif; }
+
+    /* Kaart links, paneel rechts */
+    #pagina { display: flex; height: 100%; }
+    #kaart  { flex: 1; }
+    #paneel { width: 340px; padding: 20px; overflow-y: auto;
+              background: #f7f7f7; border-left: 1px solid #ccc; box-sizing: border-box; }
+    #paneel h1 { font-size: 20px; margin: 0 0 16px; }
+    #paneel h2 { margin: 0 0 8px; }
+
+    /* Jaarslider */
+    #jaar-blok { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #ddd; }
+    #jaar-label { font-size: 18px; font-weight: bold; display: block; margin-bottom: 8px; }
+    #jaar-slider { width: 100%; }
+    #jaar-grenzen { display: flex; justify-content: space-between; font-size: 12px; color: #555; }
+    #aantal { font-size: 13px; color: #555; margin-top: 6px; }
+
+    /* Info van een plek */
+    #plek-meta { color: #555; font-size: 14px; margin: 0 0 8px; }
+    #plek-tekst { margin: 0 0 12px; }
+    #tijdlijn { list-style: none; padding: 0; margin: 0; }
+    #tijdlijn li { margin-bottom: 12px; padding-left: 10px; border-left: 3px solid #999; }
+    #tijdlijn .jaar { font-weight: bold; }
+    #tijdlijn .bron { font-size: 12px; color: #555; }
+  </style>
+</head>
+<body>
+
+  <div id="pagina">
+    <div id="kaart"></div>
+
+    <div id="paneel">
+      <h1>Digitale Dorpskaart Vlodrop</h1>
+
+      <!-- Jaarslider -->
+      <div id="jaar-blok">
+        <label id="jaar-label" for="jaar-slider">Jaar: <span id="jaar-waarde">2026 (heden)</span></label>
+        <input type="range" id="jaar-slider" min="1832" max="2026" step="1" value="2026">
+        <div id="jaar-grenzen"><span>1832</span><span>heden</span></div>
+        <div id="aantal"></div>
+      </div>
+
+      <!-- Info van de aangeklikte plek -->
+      <div id="plek-info">
+        <h2 id="plek-titel">Kies een plek</h2>
+        <p id="plek-meta"></p>
+        <p id="plek-tekst">Klik op een plek op de kaart voor meer informatie.</p>
+        <ul id="tijdlijn"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet: de kaartbibliotheek (code) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    const MIN_JAAR = 1832;
+    const MAX_JAAR = 2026;
+
+    let gekozenJaar = MAX_JAAR;   // het jaar dat de slider nu aangeeft
+    let gekozenPlekId = null;     // de plek die nu in het paneel staat
+    let aanvraagNummer = 0;       // om te voorkomen dat een oud antwoord een nieuw overschrijft
+
+    // 1. Kaart maken, begin bij het centrum van Vlodrop
+    const kaart = L.map('kaart').setView([51.1315, 6.0750], 16);
+
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap-bijdragers'
+    }).addTo(kaart);
+
+    // Een laag waar we alle markers in stoppen; handig om ze in één keer te wissen
+    const markerLaag = L.layerGroup().addTo(kaart);
+
+    // 2. Plekken ophalen voor een bepaald jaar en op de kaart zetten
+    function laadPlekken(jaar) {
+      const nummer = ++aanvraagNummer;
+
+      fetch('api.php?jaar=' + jaar)
+        .then(antwoord => antwoord.json())
+        .then(plekken => {
+          if (nummer !== aanvraagNummer) return;   // er is al een nieuwere aanvraag
+          if (plekken.fout) { console.error(plekken.fout); return; }
+
+          markerLaag.clearLayers();
+
+          plekken.forEach(plek => {
+            const marker = L.marker([plek.lat, plek.lon]).addTo(markerLaag);
+            marker.bindTooltip(plek.naam);
+            marker.on('click', () => toonPlek(plek.id));
+          });
+
+          document.getElementById('aantal').textContent =
+            plekken.length + (plekken.length === 1 ? ' plek' : ' plekken') + ' in dit jaar';
+
+          // Staat de gekozen plek er in dit jaar niet meer? Dan het paneel leegmaken.
+          if (gekozenPlekId !== null && !plekken.some(p => p.id === gekozenPlekId)) {
+            resetPaneel();
+          } else if (gekozenPlekId !== null) {
+            toonPlek(gekozenPlekId);               // geschiedenis opnieuw tot dit jaar
+          }
+        })
+        .catch(fout => console.error('Kon plekken niet ophalen:', fout));
+    }
+
+    // 3. Details van één plek ophalen en in het paneel tonen
+    function toonPlek(plekId) {
+      gekozenPlekId = plekId;
+
+      fetch('api.php?plek=' + plekId + '&jaar=' + gekozenJaar)
+        .then(antwoord => antwoord.json())
+        .then(plek => {
+          if (plek.fout) { console.error(plek.fout); return; }
+          if (plekId !== gekozenPlekId) return;
+
+          const bestaatTot = plek.tot_jaar ? plek.tot_jaar : 'heden';
+          const periode = plek.jaar_onzeker === 1
+            ? 'huidige voorziening (startjaar nog te onderzoeken)'
+            : plek.van_jaar + ' tot ' + bestaatTot;
+
+          // textContent in plaats van innerHTML: veiliger tegen ongewenste code
+          document.getElementById('plek-titel').textContent = plek.naam;
+          document.getElementById('plek-meta').textContent =
+            plek.type + ' | ' + periode;
+          document.getElementById('plek-tekst').textContent = plek.beschrijving || '';
+
+          const lijst = document.getElementById('tijdlijn');
+          lijst.replaceChildren();
+
+          plek.geschiedenis.forEach(item => {
+            const li = document.createElement('li');
+
+            const jaar = document.createElement('div');
+            jaar.className = 'jaar';
+            jaar.textContent = item.jaar;
+
+            const tekst = document.createElement('div');
+            tekst.textContent = item.tekst;
+
+            li.append(jaar, tekst);
+
+            if (item.bron) {
+              const bron = document.createElement('div');
+              bron.className = 'bron';
+              bron.textContent = 'Bron: ' + item.bron;
+              li.append(bron);
+            }
+            lijst.append(li);
+          });
+        })
+        .catch(fout => console.error('Kon plek niet ophalen:', fout));
+    }
+
+    function resetPaneel() {
+      gekozenPlekId = null;
+      document.getElementById('plek-titel').textContent = 'Kies een plek';
+      document.getElementById('plek-meta').textContent = '';
+      document.getElementById('plek-tekst').textContent =
+        'Klik op een plek op de kaart voor meer informatie.';
+      document.getElementById('tijdlijn').replaceChildren();
+    }
+
+    // 4. De slider: bij elke verschuiving het jaar bijwerken en de kaart verversen
+    const slider = document.getElementById('jaar-slider');
+    const jaarWaarde = document.getElementById('jaar-waarde');
+
+    slider.addEventListener('input', () => {
+      gekozenJaar = Number(slider.value);
+      jaarWaarde.textContent = gekozenJaar === MAX_JAAR ? gekozenJaar + ' (heden)' : gekozenJaar;
+      laadPlekken(gekozenJaar);
+    });
+
+    // 5. Bij het openen van de pagina: toon het heden
+    laadPlekken(gekozenJaar);
+  </script>
+</body>
+</html>
