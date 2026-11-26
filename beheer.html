@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beheer Vlodrop (alleen voor de projectgroep)</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root { --donker: #1f2a37; --lijn: #e5e7eb; --accent: #c2410c; --grijs: #6b7280; --rood: #b91c1c; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body { font-family: Arial, sans-serif; font-size: 14px; color: #1f2937; display: flex; flex-direction: column; background: #fff; }
+    button { font: inherit; cursor: pointer; padding: 6px 12px; border: 1px solid #cbd5e1; background: #fff; border-radius: 6px; }
+    button.hoofd { background: var(--accent); color: #fff; border-color: var(--accent); }
+    button.gevaar { color: var(--rood); border-color: #fecaca; }
+    input, select, textarea { font: inherit; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; width: 100%; }
+    textarea { resize: vertical; }
+    label { display: block; font-size: 12px; color: var(--grijs); margin: 8px 0 2px; }
+
+    header { background: var(--donker); color: #fff; padding: 10px 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    header h1 { font-size: 18px; margin: 0; }
+    header a, header button { color: #fff; background: transparent; border-color: #475569; text-decoration: none; }
+    header .rechts { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+    .tabknop[aria-selected="true"] { background: var(--accent); border-color: var(--accent); }
+
+    #melding { padding: 8px 16px; display: none; }
+    #melding.ok { display: block; background: #dcfce7; }
+    #melding.fout { display: block; background: #fee2e2; }
+
+    main { flex: 1; display: flex; min-height: 0; }
+    #lijstkolom { width: 300px; border-right: 1px solid var(--lijn); display: flex; flex-direction: column; min-height: 0; }
+    #lijstkolom .zoekbalk { padding: 10px; border-bottom: 1px solid var(--lijn); display: grid; gap: 6px; }
+    #lijst { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
+    #lijst li { padding: 6px 10px; border-bottom: 1px solid var(--lijn); cursor: pointer; }
+    #lijst li:hover { background: #f8fafc; }
+    #lijst li.gekozen { background: #ffedd5; }
+    #lijst .sub { color: var(--grijs); font-size: 12px; }
+    #lijst .vlag { color: var(--rood); font-size: 11px; }
+    #kaart { flex: 1; min-width: 0; }
+    #kaart.plaatsen { cursor: crosshair; }
+    #formkolom { width: 420px; border-left: 1px solid var(--lijn); overflow-y: auto; padding: 12px 16px 40px; }
+    .rij { display: flex; gap: 10px; }
+    .rij > div { flex: 1; }
+    .knoppen { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    h2 { font-size: 16px; margin: 4px 0 4px; }
+    h3 { font-size: 14px; margin: 20px 0 6px; padding-top: 12px; border-top: 1px solid var(--lijn); }
+    .hint { color: var(--grijs); font-size: 12px; margin: 4px 0; }
+    .gebeurtenis { border: 1px solid var(--lijn); border-radius: 8px; padding: 8px; margin-bottom: 8px; }
+    .gebeurtenis .rij > div:first-child { flex: 0 0 90px; }
+    .vink { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+    .vink input { width: auto; }
+
+    #bronnenblok, #bagblok { flex: 1; overflow-y: auto; padding: 16px; display: none; }
+    #bagblok table { border-collapse: collapse; width: 100%; }
+    #bagblok th, #bagblok td { border-bottom: 1px solid var(--lijn); padding: 4px 6px; text-align: left; }
+    #bagblok td.let { color: var(--rood); }
+    #bronnenblok table { border-collapse: collapse; width: 100%; }
+    #bronnenblok th, #bronnenblok td { border-bottom: 1px solid var(--lijn); padding: 4px; vertical-align: top; text-align: left; }
+    #bronnenblok td:first-child { width: 40px; color: var(--grijs); }
+    #bronnenblok .gebruik { color: var(--grijs); font-size: 12px; white-space: nowrap; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Beheer Vlodrop</h1>
+    <button class="tabknop" id="tab-plekken" aria-selected="true">Plekken</button>
+    <button class="tabknop" id="tab-bronnen" aria-selected="false">Bronnen</button>
+    <button class="tabknop" id="tab-bag" aria-selected="false">BAG-controle</button>
+    <div class="rechts">
+      <button id="nieuw">+ Nieuwe plek</button>
+      <button id="alles-zoeken" title="Zoekt via het adres de juiste locatie op voor alle plekken met een geschatte locatie">Geschatte locaties opzoeken</button>
+      <a href="beheer.php?export=1"><button>Exporteer CSV</button></a>
+      <a href="index.html" target="_blank"><button>Open de kaart</button></a>
+    </div>
+  </header>
+  <div id="melding" role="status"></div>
+
+  <main id="plekkenblok">
+    <section id="lijstkolom">
+      <div class="zoekbalk">
+        <input type="search" id="zoek" placeholder="Zoek op naam of soort..." aria-label="Zoeken">
+        <select id="lijstfilter" aria-label="Toon">
+          <option value="alles">Alle plekken</option>
+          <option value="controleren">Te controleren (geen bron, jaar onzeker of locatie geschat)</option>
+          <option value="geenbron">Zonder bron</option>
+          <option value="onzeker">Jaar onzeker</option>
+          <option value="osm">Uit OpenStreetMap</option>
+          <option value="geschat">Locatie geschat</option>
+        </select>
+        <div class="hint" id="teller"></div>
+      </div>
+      <ul id="lijst"></ul>
+    </section>
+
+    <div id="kaart" aria-label="Kaart"></div>
+
+    <section id="formkolom">
+      <h2 id="form-titel">Kies een plek</h2>
+      <p class="hint">Klik een plek in de lijst of op de kaart. Sleep de punt op de kaart om de locatie te verplaatsen.</p>
+
+      <form id="plekform" hidden>
+        <label for="f-naam">Naam</label>
+        <input id="f-naam" required maxlength="100">
+
+        <div class="rij">
+          <div>
+            <label for="f-soort">Soort</label>
+            <input id="f-soort" list="soorten" required maxlength="50">
+            <datalist id="soorten"></datalist>
+          </div>
+          <div>
+            <label for="f-groep">Groep</label>
+            <select id="f-groep"></select>
+          </div>
+        </div>
+        <p class="hint">De groep hoort bij de soort: een andere groep kiezen geldt voor alle plekken van die soort.</p>
+
+        <label for="f-adres">Adres (straat en huisnummer)</label>
+        <input id="f-adres" maxlength="120" placeholder="bijv. Markt 3">
+
+        <div class="rij">
+          <div><label for="f-lat">Breedtegraad (lat)</label><input id="f-lat" required inputmode="decimal"></div>
+          <div><label for="f-lon">Lengtegraad (lon)</label><input id="f-lon" required inputmode="decimal"></div>
+        </div>
+
+        <div class="knoppen" style="margin-top:6px">
+          <button type="button" id="adres-zoek">Locatie opzoeken bij adres (PDOK)</button>
+        </div>
+        <label class="vink"><input type="checkbox" id="f-geschat"> Locatie is een schatting</label>
+
+        <div class="rij">
+          <div><label for="f-van">Vanaf jaar</label><input id="f-van" type="number" required min="0" max="2100"></div>
+          <div><label for="f-tot">Tot jaar (leeg = bestaat nog)</label><input id="f-tot" type="number" min="0" max="2100"></div>
+        </div>
+        <label class="vink"><input type="checkbox" id="f-onzeker"> Startjaar onzeker (wordt getoond als "uiterlijk")</label>
+
+        <label for="f-beschrijving">Beschrijving</label>
+        <textarea id="f-beschrijving" rows="4" maxlength="2000"></textarea>
+
+        <label for="f-website">Eigen website (https://...)</label>
+        <input id="f-website" maxlength="300" placeholder="leeg = geen eigen website">
+        <label for="f-wikipedia">Wikipedia-pagina (https://...)</label>
+        <input id="f-wikipedia" maxlength="300" placeholder="leeg = geen Wikipedia-pagina">
+
+        <div class="rij">
+          <div><label for="f-facebook">Facebook</label><input id="f-facebook" maxlength="300" placeholder="https://www.facebook.com/..."></div>
+          <div><label for="f-instagram">Instagram</label><input id="f-instagram" maxlength="300" placeholder="https://www.instagram.com/..."></div>
+        </div>
+        <div class="rij">
+          <div><label for="f-linkedin">LinkedIn</label><input id="f-linkedin" maxlength="300" placeholder="https://www.linkedin.com/..."></div>
+          <div><label for="f-tiktok">TikTok</label><input id="f-tiktok" maxlength="300" placeholder="https://www.tiktok.com/@..."></div>
+        </div>
+
+        <label for="f-bron">Bron van deze plek</label>
+        <select id="f-bron" class="bronkeuze"></select>
+
+        <div class="knoppen">
+          <button type="submit" class="hoofd">Plek opslaan</button>
+          <button type="button" id="verwijder" class="gevaar">Plek verwijderen</button>
+        </div>
+      </form>
+
+      <section id="geschiedenisblok" hidden>
+        <h3>Geschiedenis (tijdlijn in het paneel)</h3>
+        <div id="gebeurtenissen"></div>
+        <button type="button" id="gebeurtenis-nieuw">+ Gebeurtenis toevoegen</button>
+      </section>
+    </section>
+  </main>
+
+  <section id="bagblok">
+    <h2>Bouwjaren controleren met de BAG</h2>
+    <p class="hint">
+      De BAG (Kadaster) geeft per gebouw het bouwjaar. De knop zoekt voor elke plek het gebouw op de locatie van de punt.
+      Plekken met een geschatte locatie of een einddatum (verdwenen) worden overgeslagen; verbeter eerst de locaties.
+      Let op: het bouwjaar is het jaar van het <b>gebouw</b>, niet van de zaak die er nu in zit.
+    </p>
+    <label class="vink"><input type="checkbox" id="bag-als-start" checked>
+      Bij plekken met een onbekend startjaar het bouwjaar gebruiken (als "uiterlijk"-jaar)</label>
+    <div class="knoppen"><button id="bag-start" class="hoofd">Bouwjaren ophalen uit de BAG</button></div>
+    <h3>Vergelijking</h3>
+    <table>
+      <thead><tr><th>Plek</th><th>Startjaar op de kaart</th><th>Bouwjaar BAG</th><th>Opmerking</th></tr></thead>
+      <tbody id="bagtabel"></tbody>
+    </table>
+  </section>
+
+  <section id="bronnenblok">
+    <h2>Bronnen</h2>
+    <p class="hint">Een link moet met https:// beginnen. Een bron die nog gebruikt wordt kun je niet verwijderen.</p>
+    <table>
+      <thead><tr><th>id</th><th>Titel</th><th>Auteur</th><th>Link</th><th>Rechten</th><th>Gebruikt</th><th></th></tr></thead>
+      <tbody id="bronnentabel"></tbody>
+    </table>
+    <h3>Nieuwe bron</h3>
+    <div class="rij">
+      <div><label for="b-titel">Titel</label><input id="b-titel" maxlength="200"></div>
+      <div><label for="b-auteur">Auteur</label><input id="b-auteur" maxlength="100"></div>
+    </div>
+    <div class="rij">
+      <div><label for="b-url">Link (https://...)</label><input id="b-url" maxlength="300"></div>
+      <div><label for="b-rechten">Rechten / licentie</label><input id="b-rechten" maxlength="200"></div>
+    </div>
+    <div class="knoppen"><button id="b-opslaan" class="hoofd">Bron toevoegen</button></div>
+  </section>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    if (location.protocol === 'file:') {
+      alert('Open deze pagina via http://localhost/vlodrop/beheer.html, anders werkt opslaan niet.');
+    }
+
+    const GROEPEN = ['Winkels', 'Horeca', 'Zorg', 'Onderwijs', 'Diensten', 'Sport & recreatie',
+      'Voorzieningen', 'Religie', 'Erfgoed', 'Bedrijven', 'Verblijf & toerisme', 'Verenigingen', 'Overig'];
+    const GROEP_KLEUR = {
+      'Winkels': '#be185d', 'Horeca': '#ea580c', 'Zorg': '#0e7490', 'Onderwijs': '#d97706',
+      'Diensten': '#1d4ed8', 'Sport & recreatie': '#15803d', 'Voorzieningen': '#0f766e',
+      'Religie': '#6d28d9', 'Erfgoed': '#7c2d12', 'Bedrijven': '#475569',
+      'Verblijf & toerisme': '#a21caf', 'Verenigingen': '#65a30d', 'Overig': '#6b7280'
+    };
+
+    const el = id => document.getElementById(id);
+    let data = { plekken: [], geschiedenis: [], bronnen: [], types: [] };
+    let gekozenId = null;        // id van de plek in het formulier (null = nieuwe plek)
+    let plaatsModus = false;     // "Nieuwe plek": klik op de kaart om te plaatsen
+    const markers = new Map();
+    let nieuwMarker = null;
+
+    // ---------- Meldingen ----------
+    function meld(tekst, soort) {
+      const m = el('melding');
+      m.textContent = tekst;
+      m.className = soort;
+      clearTimeout(meld.timer);
+      meld.timer = setTimeout(() => { m.className = ''; }, soort === 'fout' ? 8000 : 3000);
+    }
+
+    // ---------- Server ----------
+    async function laad() {
+      const antwoord = await fetch('beheer.php');
+      const json = await antwoord.json();
+      if (json.fout) { meld(json.fout, 'fout'); return; }
+      data = json;
+      vulKeuzelijsten();
+      tekenLijst();
+      tekenKaart();
+      tekenBronnen();
+    }
+
+    async function actie(naam, gegevens) {
+      try {
+        const antwoord = await fetch('beheer.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ actie: naam, data: gegevens })
+        });
+        const json = await antwoord.json();
+        if (json.fout) { meld(json.fout, 'fout'); return null; }
+        return json;
+      } catch (fout) {
+        meld('Kon de server niet bereiken: ' + fout.message, 'fout');
+        return null;
+      }
+    }
+
+    // ---------- Hulp ----------
+    const bronVan = id => data.bronnen.find(b => b.id === id);
+    const isOsm = p => p.osm_id !== null && p.osm_id !== '';
+    const teControleren = p => !p.bron_id || p.jaar_onzeker === 1 || p.coord_geschat === 1;
+
+    function vulBronSelect(select, waarde) {
+      select.replaceChildren();
+      const leeg = document.createElement('option');
+      leeg.value = '';
+      leeg.textContent = '(geen bron)';
+      select.append(leeg);
+      data.bronnen.forEach(b => {
+        const o = document.createElement('option');
+        o.value = b.id;
+        o.textContent = b.id + ' - ' + b.titel;
+        select.append(o);
+      });
+      select.value = waarde ? String(waarde) : '';
+    }
+
+    function vulKeuzelijsten() {
+      const groepen = [...new Set(GROEPEN.concat(data.types.map(t => t.groep)))];
+      const g = el('f-groep');
+      const huidig = g.value;
+      g.replaceChildren();
+      groepen.forEach(naam => {
+        const o = document.createElement('option');
+        o.value = naam; o.textContent = naam;
+        g.append(o);
+      });
+      if (huidig) g.value = huidig;
+
+      const dl = el('soorten');
+      dl.replaceChildren();
+      data.types.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t.naam;
+        o.label = t.groep;
+        dl.append(o);
+      });
+    }
+
+    // Groep invullen zodra je een bestaande soort kiest
+    el('f-soort').addEventListener('change', () => {
+      const t = data.types.find(t => t.naam === el('f-soort').value.trim());
+      if (t) el('f-groep').value = t.groep;
+    });
+
+    // ---------- Lijst ----------
+    function gefilterd() {
+      const zoek = el('zoek').value.trim().toLowerCase();
+      const filter = el('lijstfilter').value;
+      return data.plekken.filter(p => {
+        if (zoek && !(p.naam + ' ' + p.soort + ' ' + p.groep).toLowerCase().includes(zoek)) return false;
+        if (filter === 'controleren') return teControleren(p);
+        if (filter === 'geenbron') return !p.bron_id;
+        if (filter === 'onzeker') return p.jaar_onzeker === 1;
+        if (filter === 'osm') return isOsm(p);
+        if (filter === 'geschat') return p.coord_geschat === 1;
+        return true;
+      });
+    }
+
+    function tekenLijst() {
+      const lijst = el('lijst');
+      lijst.replaceChildren();
+      const plekken = gefilterd();
+      el('teller').textContent = plekken.length + ' van ' + data.plekken.length + ' plekken';
+      plekken.forEach(p => {
+        const li = document.createElement('li');
+        if (p.id === gekozenId) li.className = 'gekozen';
+        const naam = document.createElement('div');
+        naam.textContent = p.naam;
+        const sub = document.createElement('div');
+        sub.className = 'sub';
+        sub.textContent = p.soort + ' | ' + p.van_jaar + (p.tot_jaar ? '-' + p.tot_jaar : '-heden');
+        li.append(naam, sub);
+        const vlaggen = [];
+        if (!p.bron_id) vlaggen.push('geen bron');
+        if (p.jaar_onzeker === 1) vlaggen.push('jaar onzeker');
+        if (p.coord_geschat === 1) vlaggen.push('locatie geschat');
+        if (vlaggen.length) {
+          const v = document.createElement('div');
+          v.className = 'vlag';
+          v.textContent = vlaggen.join(', ');
+          li.append(v);
+        }
+        li.addEventListener('click', () => kies(p.id, true));
+        lijst.append(li);
+      });
+    }
+    el('zoek').addEventListener('input', () => { tekenLijst(); tekenKaart(); });
+    el('lijstfilter').addEventListener('change', () => { tekenLijst(); tekenKaart(); });
+
+    // ---------- Kaart ----------
+    const kaart = L.map('kaart').setView([51.1315, 6.0750], 15);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap-bijdragers'
+    }).addTo(kaart);
+    const laag = L.layerGroup().addTo(kaart);
+
+    function icoon(kleur, gekozen) {
+      const maat = gekozen ? 26 : 16;
+      return L.divIcon({
+        className: '',
+        html: '<div style="width:' + maat + 'px;height:' + maat + 'px;border-radius:50%;background:' + kleur
+          + ';border:3px solid ' + (gekozen ? '#c2410c' : '#fff') + ';box-shadow:0 1px 3px rgba(0,0,0,.5)"></div>',
+        iconSize: [maat, maat], iconAnchor: [maat / 2, maat / 2]
+      });
+    }
+
+    function tekenKaart() {
+      laag.clearLayers();
+      markers.clear();
+      gefilterd().forEach(p => {
+        const gekozen = p.id === gekozenId;
+        const m = L.marker([p.lat, p.lon], {
+          icon: icoon(GROEP_KLEUR[p.groep] || '#333', gekozen),
+          draggable: gekozen, title: p.naam, zIndexOffset: gekozen ? 1000 : 0
+        }).addTo(laag);
+        m.bindTooltip(p.naam);
+        m.on('click', () => kies(p.id, false));
+        m.on('dragend', () => {
+          const pos = m.getLatLng();
+          el('f-lat').value = pos.lat.toFixed(6);
+          el('f-lon').value = pos.lng.toFixed(6);
+          el('f-geschat').checked = false;
+          meld('Locatie verplaatst. Klik op "Plek opslaan" om te bewaren.', 'ok');
+        });
+        markers.set(p.id, m);
+      });
+    }
+
+    // Typ je coordinaten, dan verschuift de punt mee
+    ['f-lat', 'f-lon'].forEach(id => el(id).addEventListener('input', () => {
+      const lat = parseFloat(el('f-lat').value.replace(',', '.'));
+      const lon = parseFloat(el('f-lon').value.replace(',', '.'));
+      if (isNaN(lat) || isNaN(lon)) return;
+      const m = gekozenId !== null ? markers.get(gekozenId) : nieuwMarker;
+      if (m) m.setLatLng([lat, lon]);
+    }));
+
+    // ---------- Formulier ----------
+    function kies(id, centreer) {
+      stopPlaatsen();
+      gekozenId = id;
+      const p = data.plekken.find(x => x.id === id);
+      if (!p) return;
+      el('form-titel').textContent = p.naam + ' (id ' + p.id + ')';
+      el('plekform').hidden = false;
+      el('geschiedenisblok').hidden = false;
+      el('verwijder').hidden = false;
+      el('f-naam').value = p.naam;
+      el('f-soort').value = p.soort;
+      el('f-groep').value = p.groep;
+      el('f-lat').value = p.lat;
+      el('f-lon').value = p.lon;
+      el('f-van').value = p.van_jaar;
+      el('f-tot').value = p.tot_jaar === null ? '' : p.tot_jaar;
+      el('f-onzeker').checked = p.jaar_onzeker === 1;
+      el('f-beschrijving').value = p.beschrijving || '';
+      el('f-adres').value = p.adres || '';
+      el('f-website').value = p.website || '';
+      el('f-wikipedia').value = p.wikipedia || '';
+      ['facebook', 'instagram', 'linkedin', 'tiktok'].forEach(s => { el('f-' + s).value = p[s] || ''; });
+      el('f-geschat').checked = p.coord_geschat === 1;
+      vulBronSelect(el('f-bron'), p.bron_id);
+      tekenGebeurtenissen();
+      tekenLijst();
+      tekenKaart();
+      if (centreer) kaart.setView([p.lat, p.lon], Math.max(kaart.getZoom(), 17));
+    }
+
+    el('plekform').addEventListener('submit', async e => {
+      e.preventDefault();
+      const gegevens = {
+        id: gekozenId,
+        naam: el('f-naam').value,
+        soort: el('f-soort').value,
+        groep: el('f-groep').value,
+        lat: el('f-lat').value.replace(',', '.'),
+        lon: el('f-lon').value.replace(',', '.'),
+        van_jaar: el('f-van').value,
+        tot_jaar: el('f-tot').value,
+        jaar_onzeker: el('f-onzeker').checked,
+        beschrijving: el('f-beschrijving').value,
+        bron_id: el('f-bron').value,
+        adres: el('f-adres').value,
+        website: el('f-website').value,
+        wikipedia: el('f-wikipedia').value,
+        facebook: el('f-facebook').value,
+        instagram: el('f-instagram').value,
+        linkedin: el('f-linkedin').value,
+        tiktok: el('f-tiktok').value,
+        coord_geschat: el('f-geschat').checked
+      };
+      const uitkomst = await actie('plek_opslaan', gegevens);
+      if (!uitkomst) return;
+      meld('Opgeslagen.', 'ok');
+      if (nieuwMarker) { kaart.removeLayer(nieuwMarker); nieuwMarker = null; }
+      await laad();
+      kies(uitkomst.id, false);
+    });
+
+    el('verwijder').addEventListener('click', async () => {
+      if (gekozenId === null) return;
+      const p = data.plekken.find(x => x.id === gekozenId);
+      if (!confirm('Weet je zeker dat je "' + p.naam + '" en zijn geschiedenis wilt verwijderen?')) return;
+      const uitkomst = await actie('plek_verwijderen', { id: gekozenId });
+      if (!uitkomst) return;
+      meld('Verwijderd.', 'ok');
+      gekozenId = null;
+      el('plekform').hidden = true;
+      el('geschiedenisblok').hidden = true;
+      el('form-titel').textContent = 'Kies een plek';
+      await laad();
+    });
+
+    // ---------- Nieuwe plek ----------
+    function stopPlaatsen() {
+      plaatsModus = false;
+      el('kaart').classList.remove('plaatsen');
+      if (nieuwMarker) { kaart.removeLayer(nieuwMarker); nieuwMarker = null; }
+    }
+
+    el('nieuw').addEventListener('click', () => {
+      stopPlaatsen();
+      gekozenId = null;
+      plaatsModus = true;
+      el('kaart').classList.add('plaatsen');
+      el('form-titel').textContent = 'Nieuwe plek';
+      el('plekform').reset();
+      el('plekform').hidden = false;
+      el('geschiedenisblok').hidden = true;
+      el('verwijder').hidden = true;
+      el('f-van').value = new Date().getFullYear();
+      el('f-onzeker').checked = true;
+      vulBronSelect(el('f-bron'), null);
+      tekenLijst();
+      tekenKaart();
+      meld('Klik op de kaart waar de nieuwe plek moet komen.', 'ok');
+    });
+
+    kaart.on('click', e => {
+      if (!plaatsModus) return;
+      el('f-lat').value = e.latlng.lat.toFixed(6);
+      el('f-lon').value = e.latlng.lng.toFixed(6);
+      if (nieuwMarker) kaart.removeLayer(nieuwMarker);
+      nieuwMarker = L.marker(e.latlng, { draggable: true, icon: icoon('#c2410c', true) }).addTo(kaart);
+      nieuwMarker.on('dragend', () => {
+        const pos = nieuwMarker.getLatLng();
+        el('f-lat').value = pos.lat.toFixed(6);
+        el('f-lon').value = pos.lng.toFixed(6);
+      });
+    });
+
+
+    // ---------- Locatie opzoeken via PDOK (Locatieserver) ----------
+    async function zoekAdres(adres) {
+      const url = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?rows=1'
+        + '&fq=' + encodeURIComponent('woonplaatsnaam:Vlodrop')
+        + '&fl=weergavenaam,centroide_ll,type&q=' + encodeURIComponent(adres);
+      const data = await (await fetch(url)).json();
+      const doc = data.response && data.response.docs && data.response.docs[0];
+      const m = doc && /POINT\(([-\d.]+) ([-\d.]+)\)/.exec(doc.centroide_ll || '');
+      if (!m) return null;
+      return { lat: parseFloat(m[2]), lon: parseFloat(m[1]), naam: doc.weergavenaam, type: doc.type };
+    }
+
+    el('adres-zoek').addEventListener('click', async () => {
+      const adres = el('f-adres').value.trim();
+      if (!adres) { meld('Vul eerst een adres in.', 'fout'); return; }
+      try {
+        const r = await zoekAdres(adres);
+        if (!r) { meld('Adres niet gevonden in Vlodrop.', 'fout'); return; }
+        el('f-lat').value = r.lat.toFixed(6);
+        el('f-lon').value = r.lon.toFixed(6);
+        el('f-geschat').checked = r.type !== 'adres';   // alleen een straat gevonden? dan blijft het een schatting
+        el('f-lat').dispatchEvent(new Event('input'));
+        meld('Gevonden: ' + r.naam + '. Controleer de punt en klik op "Plek opslaan".', 'ok');
+      } catch (fout) {
+        meld('Opzoeken mislukt: ' + fout.message, 'fout');
+      }
+    });
+
+    el('alles-zoeken').addEventListener('click', async () => {
+      const lijst = data.plekken.filter(p => p.coord_geschat === 1 && p.adres);
+      if (lijst.length === 0) { meld('Er zijn geen geschatte plekken met een adres.', 'ok'); return; }
+      if (!confirm(lijst.length + ' plekken opzoeken via hun adres en de locatie aanpassen?')) return;
+      let goed = 0, straat = 0, mis = 0;
+      for (const p of lijst) {
+        meld('Bezig: ' + p.naam + ' (' + (goed + straat + mis + 1) + ' van ' + lijst.length + ')', 'ok');
+        try {
+          const r = await zoekAdres(p.adres);
+          if (!r) { mis++; continue; }
+          if (r.type !== 'adres') { straat++; continue; }   // alleen straat: niet overschrijven
+          const uitkomst = await actie('locatie_opslaan', { id: p.id, lat: r.lat, lon: r.lon });
+          if (uitkomst) goed++; else mis++;
+        } catch (fout) { mis++; }
+      }
+      await laad();
+      meld(goed + ' locaties verbeterd. ' + straat + ' alleen op straatniveau gevonden (zelf verslepen). '
+        + mis + ' niet gevonden.', 'ok');
+    });
+
+
+    // ---------- BAG: bouwjaar van het gebouw op de locatie ----------
+    // Ligt punt [lon, lat] binnen een ring van coordinaten? (straal-methode)
+    function inRing(punt, ring) {
+      let binnen = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i], [xj, yj] = ring[j];
+        if ((yi > punt[1]) !== (yj > punt[1]) && punt[0] < (xj - xi) * (punt[1] - yi) / (yj - yi) + xi) binnen = !binnen;
+      }
+      return binnen;
+    }
+    function inGeometrie(punt, g) {
+      if (!g) return false;
+      const polygonen = g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : [];
+      return polygonen.some(poly => poly.length && inRing(punt, poly[0]));
+    }
+
+    async function bagPand(lat, lon) {
+      const d = 0.0004;   // ongeveer 30-45 meter rondom het punt
+      const url = 'https://api.pdok.nl/kadaster/bag/ogc/v2/collections/pand/items?f=json&limit=50&bbox='
+        + [lon - d, lat - d, lon + d, lat + d].join(',');
+      const data = await (await fetch(url)).json();
+      const panden = (data.features || []).filter(f => f.properties && f.properties.bouwjaar);
+      if (panden.length === 0) return null;
+      // Liefst het pand waar de punt in ligt, anders het dichtstbijzijnde
+      let gekozen = panden.find(f => inGeometrie([lon, lat], f.geometry));
+      if (!gekozen) {
+        const afstand = f => {
+          const c = (f.geometry.type === 'Polygon' ? f.geometry.coordinates[0] : f.geometry.coordinates[0][0])[0];
+          return Math.hypot(c[0] - lon, c[1] - lat);
+        };
+        gekozen = panden.slice().sort((a, b2) => afstand(a) - afstand(b2))[0];
+      }
+      return { bouwjaar: Number(gekozen.properties.bouwjaar), id: String(gekozen.properties.identificatie || '') };
+    }
+
+    el('bag-start').addEventListener('click', async () => {
+      const lijst = data.plekken.filter(p => p.coord_geschat !== 1 && p.tot_jaar === null);
+      const alsStart = el('bag-als-start').checked;
+      if (!confirm(lijst.length + ' plekken opzoeken in de BAG?')) return;
+      let gevonden = 0, nietGevonden = 0, aangepast = 0;
+      for (const p of lijst) {
+        meld('BAG: ' + p.naam + ' (' + (gevonden + nietGevonden + 1) + ' van ' + lijst.length + ')', 'ok');
+        try {
+          const pand = await bagPand(p.lat, p.lon);
+          if (!pand || !pand.bouwjaar) { nietGevonden++; continue; }
+          const uitkomst = await actie('bag_opslaan', { id: p.id, bouwjaar: pand.bouwjaar, pand_id: pand.id, als_start: alsStart });
+          if (uitkomst) { gevonden++; if (uitkomst.startjaar_aangepast) aangepast++; } else nietGevonden++;
+        } catch (fout) { nietGevonden++; }
+      }
+      await laad();
+      tekenBag();
+      meld(gevonden + ' bouwjaren gevonden, ' + aangepast + ' startjaren aangevuld, ' + nietGevonden + ' zonder gebouw.', 'ok');
+    });
+
+    function tekenBag() {
+      const tabel = el('bagtabel');
+      tabel.replaceChildren();
+      data.plekken
+        .slice()
+        .sort((a, b2) => (a.bag_bouwjaar ? 0 : 1) - (b2.bag_bouwjaar ? 0 : 1) || a.naam.localeCompare(b2.naam))
+        .forEach(p => {
+          const rij = document.createElement('tr');
+          const cel = t => { const td = document.createElement('td'); td.textContent = t; rij.append(td); return td; };
+          cel(p.naam);
+          cel((p.jaar_onzeker === 1 ? 'uiterlijk ' : '') + (p.van_jaar >= 2026 && p.jaar_onzeker === 1 ? 'onbekend' : p.van_jaar));
+          cel(p.bag_bouwjaar || '-');
+          let opmerking = '';
+          if (!p.bag_bouwjaar) opmerking = p.coord_geschat === 1 ? 'locatie geschat, eerst verbeteren' : (p.tot_jaar ? 'verdwenen plek' : 'nog niet opgehaald / geen gebouw');
+          else if (p.bag_bouwjaar > p.van_jaar) opmerking = 'gebouw is nieuwer dan het startjaar (herbouwd of andere plek?)';
+          else if (p.van_jaar - p.bag_bouwjaar > 5 && p.jaar_onzeker === 1) opmerking = 'gebouw is ouder; zaak begon mogelijk later';
+          const o = cel(opmerking);
+          if (opmerking.startsWith('gebouw is nieuwer')) o.className = 'let';
+          tabel.append(rij);
+        });
+    }
+
+    // ---------- Geschiedenis ----------
+    function tekenGebeurtenissen() {
+      const blok = el('gebeurtenissen');
+      blok.replaceChildren();
+      data.geschiedenis.filter(g => g.plek_id === gekozenId).forEach(g => blok.append(gebeurtenisKaart(g)));
+    }
+
+    function gebeurtenisKaart(g) {
+      const kaartje = document.createElement('div');
+      kaartje.className = 'gebeurtenis';
+
+      const rij = document.createElement('div');
+      rij.className = 'rij';
+      const jaarDiv = document.createElement('div');
+      const jaar = document.createElement('input');
+      jaar.type = 'number'; jaar.min = 0; jaar.max = 2100;
+      jaar.value = g.jaar !== undefined ? g.jaar : '';
+      jaar.setAttribute('aria-label', 'Jaar');
+      jaarDiv.append(jaar);
+      const bronDiv = document.createElement('div');
+      const bron = document.createElement('select');
+      bron.setAttribute('aria-label', 'Bron');
+      vulBronSelect(bron, g.bron_id);
+      bronDiv.append(bron);
+      rij.append(jaarDiv, bronDiv);
+
+      const tekst = document.createElement('textarea');
+      tekst.rows = 3;
+      tekst.maxLength = 2000;
+      tekst.value = g.tekst || '';
+      tekst.setAttribute('aria-label', 'Tekst');
+      tekst.style.marginTop = '6px';
+
+      const knoppen = document.createElement('div');
+      knoppen.className = 'knoppen';
+      const opslaan = document.createElement('button');
+      opslaan.textContent = 'Opslaan';
+      opslaan.className = 'hoofd';
+      opslaan.addEventListener('click', async () => {
+        const uitkomst = await actie('gebeurtenis_opslaan', {
+          id: g.id || null, plek_id: gekozenId, jaar: jaar.value, tekst: tekst.value, bron_id: bron.value
+        });
+        if (!uitkomst) return;
+        meld('Gebeurtenis opgeslagen.', 'ok');
+        await laad();
+        kies(gekozenId, false);
+      });
+      const weg = document.createElement('button');
+      weg.textContent = 'Verwijderen';
+      weg.className = 'gevaar';
+      weg.addEventListener('click', async () => {
+        if (!g.id) { kaartje.remove(); return; }
+        if (!confirm('Deze gebeurtenis verwijderen?')) return;
+        const uitkomst = await actie('gebeurtenis_verwijderen', { id: g.id });
+        if (!uitkomst) return;
+        meld('Gebeurtenis verwijderd.', 'ok');
+        await laad();
+        kies(gekozenId, false);
+      });
+      knoppen.append(opslaan, weg);
+
+      kaartje.append(rij, tekst, knoppen);
+      return kaartje;
+    }
+
+    el('gebeurtenis-nieuw').addEventListener('click', () => {
+      el('gebeurtenissen').append(gebeurtenisKaart({ bron_id: null }));
+    });
+
+    // ---------- Bronnen ----------
+    function tekenBronnen() {
+      const tabel = el('bronnentabel');
+      tabel.replaceChildren();
+      data.bronnen.forEach(b => {
+        const gebruik = data.plekken.filter(p => p.bron_id === b.id).length
+          + data.geschiedenis.filter(g => g.bron_id === b.id).length;
+        const rij = document.createElement('tr');
+        const idCel = document.createElement('td');
+        idCel.textContent = b.id;
+        rij.append(idCel);
+
+        const velden = {};
+        [['titel', 200], ['auteur', 100], ['url', 300], ['rechten', 200]].forEach(([naam, max]) => {
+          const cel = document.createElement('td');
+          const invoer = document.createElement('input');
+          invoer.value = b[naam] || '';
+          invoer.maxLength = max;
+          invoer.setAttribute('aria-label', naam);
+          cel.append(invoer);
+          rij.append(cel);
+          velden[naam] = invoer;
+        });
+
+        const gebruikCel = document.createElement('td');
+        gebruikCel.className = 'gebruik';
+        gebruikCel.textContent = gebruik + 'x';
+        rij.append(gebruikCel);
+
+        const knopCel = document.createElement('td');
+        const opslaan = document.createElement('button');
+        opslaan.textContent = 'Opslaan';
+        opslaan.addEventListener('click', async () => {
+          const uitkomst = await actie('bron_opslaan', {
+            id: b.id, titel: velden.titel.value, auteur: velden.auteur.value,
+            url: velden.url.value, rechten: velden.rechten.value
+          });
+          if (uitkomst) { meld('Bron opgeslagen.', 'ok'); await laad(); }
+        });
+        knopCel.append(opslaan);
+        rij.append(knopCel);
+        tabel.append(rij);
+      });
+    }
+
+    el('b-opslaan').addEventListener('click', async () => {
+      const uitkomst = await actie('bron_opslaan', {
+        titel: el('b-titel').value, auteur: el('b-auteur').value,
+        url: el('b-url').value, rechten: el('b-rechten').value
+      });
+      if (!uitkomst) return;
+      meld('Bron toegevoegd (id ' + uitkomst.id + ').', 'ok');
+      ['b-titel', 'b-auteur', 'b-url', 'b-rechten'].forEach(id => { el(id).value = ''; });
+      await laad();
+    });
+
+    // ---------- Tabs ----------
+    function toonTab(naam) {
+      el('plekkenblok').style.display = naam === 'plekken' ? 'flex' : 'none';
+      el('bronnenblok').style.display = naam === 'bronnen' ? 'block' : 'none';
+      el('bagblok').style.display = naam === 'bag' ? 'block' : 'none';
+      el('tab-plekken').setAttribute('aria-selected', naam === 'plekken' ? 'true' : 'false');
+      el('tab-bronnen').setAttribute('aria-selected', naam === 'bronnen' ? 'true' : 'false');
+      el('tab-bag').setAttribute('aria-selected', naam === 'bag' ? 'true' : 'false');
+      el('nieuw').hidden = naam !== 'plekken';
+      if (naam === 'plekken') setTimeout(() => kaart.invalidateSize(), 0);
+      if (naam === 'bag') tekenBag();
+    }
+    el('tab-plekken').addEventListener('click', () => toonTab('plekken'));
+    el('tab-bronnen').addEventListener('click', () => toonTab('bronnen'));
+    el('tab-bag').addEventListener('click', () => toonTab('bag'));
+
+    laad().catch(fout => meld('Kon gegevens niet laden: ' + fout.message, 'fout'));
+  </script>
+</body>
+</html>

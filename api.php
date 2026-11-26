@@ -1,7 +1,9 @@
 <?php
 // api.php
 //   api.php?jaar=1880            -> alle plekken die in 1880 bestonden
-//   api.php?plek=3&jaar=1880     -> details + geschiedenis van plek 3 tot en met 1880
+//   api.php?plek=3&jaar=1880     -> details + alle geschiedenis van plek 3 (latere gebeurtenissen gemarkeerd)
+//   api.php?jaren=1              -> jaartallen met gebeurtenissen (voor de tijdlijn)
+//   api.php?types=1              -> alle soorten plekken met hun groep (voor de filterlijst)
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -28,15 +30,54 @@ try {
 
     $jaar = leesGetal('jaar', MAX_JAAR, MIN_JAAR, MAX_JAAR);
 
-    if (isset($_GET['plek'])) {
+    if (isset($_GET['types'])) {
+        // ---- Alle soorten plekken, met groep en aantal (voor de filterlijst) ----
+        $stmt = $pdo->query(
+            'SELECT types.groep, types.naam AS type, COUNT(plekken.id) AS aantal
+             FROM types
+             JOIN plekken ON plekken.type_id = types.id
+             GROUP BY types.id, types.groep, types.naam
+             ORDER BY types.groep, types.naam'
+        );
+        $rijen = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rijen as &$r) { $r['aantal'] = (int) $r['aantal']; }
+        unset($r);
+        echo json_encode($rijen);
+
+    } elseif (isset($_GET['jaren'])) {
+        // ---- Jaartallen waarin iets is gebeurd (voor de streepjes op de tijdlijn) ----
+        $stmt = $pdo->prepare(
+            'SELECT jaar, COUNT(*) AS aantal
+             FROM geschiedenis
+             WHERE jaar BETWEEN :min AND :max
+             GROUP BY jaar
+             ORDER BY jaar'
+        );
+        $stmt->execute([':min' => MIN_JAAR, ':max' => MAX_JAAR]);
+        $jaren = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($jaren as &$j) {
+            $j['jaar'] = (int) $j['jaar'];
+            $j['aantal'] = (int) $j['aantal'];
+        }
+        unset($j);
+        echo json_encode($jaren);
+
+    } elseif (isset($_GET['plek'])) {
         // ---- Details van één plek ----
         $plekId = leesGetal('plek', 0, 0, PHP_INT_MAX);
 
         $stmt = $pdo->prepare(
-            'SELECT plekken.id, plekken.naam, types.naam AS type,
-                    plekken.van_jaar, plekken.tot_jaar, plekken.jaar_onzeker, plekken.beschrijving
+            'SELECT plekken.id, plekken.naam, types.naam AS type, types.groep AS groep,
+                    plekken.van_jaar, plekken.tot_jaar, plekken.jaar_onzeker,
+                    plekken.beschrijving, plekken.adres, plekken.coord_geschat,
+                    plekken.website, plekken.wikipedia,
+                    plekken.facebook, plekken.instagram, plekken.linkedin, plekken.tiktok,
+                    plekken.bag_bouwjaar,
+                    plekken.lat, plekken.lon,
+                    bronnen.titel AS plek_bron, bronnen.url AS plek_bron_url
              FROM plekken
              JOIN types ON plekken.type_id = types.id
+             LEFT JOIN bronnen ON plekken.bron_id = bronnen.id
              WHERE plekken.id = :id'
         );
         $stmt->execute([':id' => $plekId]);
@@ -48,26 +89,39 @@ try {
             exit;
         }
 
-        // Alleen geschiedenis tot en met het gekozen jaar
+        // Alle gebeurtenissen; 'later' = na het gekozen jaar (wordt grijs getoond)
         $stmt = $pdo->prepare(
             'SELECT geschiedenis.jaar, geschiedenis.tekst,
                     bronnen.titel AS bron, bronnen.url AS bron_url
              FROM geschiedenis
              LEFT JOIN bronnen ON geschiedenis.bron_id = bronnen.id
-             WHERE geschiedenis.plek_id = :id AND geschiedenis.jaar <= :jaar
-             ORDER BY geschiedenis.jaar'
+             WHERE geschiedenis.plek_id = :id
+             ORDER BY geschiedenis.jaar, geschiedenis.id'
         );
-        $stmt->execute([':id' => $plekId, ':jaar' => $jaar]);
-        $plek['geschiedenis'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $stmt->execute([':id' => $plekId]);
+        $gebeurtenissen = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($gebeurtenissen as &$g) {
+            $g['jaar'] = (int) $g['jaar'];
+            $g['later'] = $g['jaar'] > $jaar;
+        }
+        unset($g);
+        $plek['geschiedenis'] = $gebeurtenissen;
 
+        $plek['id'] = (int) $plek['id'];
+        $plek['van_jaar'] = (int) $plek['van_jaar'];
+        $plek['tot_jaar'] = $plek['tot_jaar'] === null ? null : (int) $plek['tot_jaar'];
+        $plek['lat'] = (float) $plek['lat'];
+        $plek['lon'] = (float) $plek['lon'];
+        $plek['coord_geschat'] = (int) $plek['coord_geschat'];
         $plek['jaar_onzeker'] = (int) $plek['jaar_onzeker'];
         echo json_encode($plek);
+
     } else {
         // ---- Alle plekken die in het gekozen jaar bestonden ----
         $stmt = $pdo->prepare(
-            'SELECT plekken.id, plekken.naam, types.naam AS type,
+            'SELECT plekken.id, plekken.naam, types.naam AS type, types.groep AS groep,
                     plekken.lat, plekken.lon,
-                    plekken.van_jaar, plekken.tot_jaar, plekken.jaar_onzeker, plekken.beschrijving
+                    plekken.van_jaar, plekken.tot_jaar, plekken.jaar_onzeker
              FROM plekken
              JOIN types ON plekken.type_id = types.id
              WHERE plekken.van_jaar <= :jaar1
@@ -81,6 +135,7 @@ try {
         foreach ($plekken as &$p) {
             $p['lat'] = (float) $p['lat'];
             $p['lon'] = (float) $p['lon'];
+            $p['jaar_onzeker'] = (int) $p['jaar_onzeker'];
         }
         unset($p);
 

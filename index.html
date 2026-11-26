@@ -3,186 +3,1044 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Digitale Dorpskaart Vlodrop</title>
+  <title>Vlodrop door de tijd</title>
 
   <!-- Leaflet: de kaartbibliotheek (stijlen) -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
   <style>
-    html, body { height: 100%; margin: 0; font-family: Arial, sans-serif; }
+    /* ---------- Kleuren en basis ---------- */
+    :root {
+      --donker: #1f2a37;
+      --papier: #faf7f2;
+      --lijn: #e3ddd2;
+      --accent: #c2410c;
+      --tekst: #1f2937;
+      --grijs: #6b7280;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--tekst);
+      background: var(--papier);
+      display: flex;
+      flex-direction: column;
+    }
+    button { font: inherit; cursor: pointer; }
 
-    /* Kaart links, paneel rechts */
-    #pagina { display: flex; height: 100%; }
-    #kaart  { flex: 1; }
-    #paneel { width: 340px; padding: 20px; overflow-y: auto;
-              background: #f7f7f7; border-left: 1px solid #ccc; box-sizing: border-box; }
-    #paneel h1 { font-size: 20px; margin: 0 0 16px; }
-    #paneel h2 { margin: 0 0 8px; }
+    /* ---------- Bovenbalk ---------- */
+    .top {
+      background: var(--donker);
+      color: #fff;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .top h1 { margin: 0; font-size: 22px; letter-spacing: 0.3px; }
+    .top p  { margin: 0; font-size: 13px; color: #cbd5e1; font-family: Arial, sans-serif; }
 
-    /* Jaarslider */
-    #jaar-blok { margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid #ddd; }
-    #jaar-label { font-size: 18px; font-weight: bold; display: block; margin-bottom: 8px; }
-    #jaar-slider { width: 100%; }
-    #jaar-grenzen { display: flex; justify-content: space-between; font-size: 12px; color: #555; }
-    #aantal { font-size: 13px; color: #555; margin-top: 6px; }
+    /* ---------- Midden: kaart + paneel ---------- */
+    .midden { flex: 1; display: flex; min-height: 0; }
+    #kaart  { flex: 1; min-width: 0; }
+    #paneel {
+      width: 380px; overflow-y: auto; display: flex; flex-direction: column;
+      background: var(--papier); border-left: 1px solid var(--lijn);
+    }
+    .tabs { display: flex; border-bottom: 1px solid var(--lijn); position: sticky; top: 0; background: var(--papier); z-index: 5; }
+    .tabs button {
+      flex: 1; padding: 12px 8px; border: none; background: transparent;
+      font-family: Arial, sans-serif; font-size: 14px; border-bottom: 3px solid transparent; color: var(--grijs);
+    }
+    .tabs button[aria-selected="true"] { color: var(--tekst); border-bottom-color: var(--accent); font-weight: bold; }
+    #blok-filter { padding: 16px 20px 24px; }
+    #blok-filter { font-family: Arial, sans-serif; font-size: 14px; }
+    #blok-filter h3 { font-size: 15px; margin: 18px 0 6px; }
+    #zoek { width: 100%; padding: 8px 10px; font-size: 14px; border: 1px solid var(--lijn); border-radius: 6px; }
+    .knoppen { display: flex; gap: 6px; margin: 10px 0; }
+    .knoppen button { padding: 5px 10px; border: 1px solid var(--lijn); background: #fff; border-radius: 6px; font-size: 13px; }
+    /* Filterlijst: de hele balk is een aan/uit-knop, het pijltje rechts klapt de soorten uit */
+    .groep { display: flex; flex-wrap: wrap; border: 1px solid var(--lijn); border-radius: 8px; margin-bottom: 6px; background: #fff; overflow: hidden; }
+    .groep-knop, .soort-knop {
+      flex: 1; display: flex; align-items: center; gap: 10px; text-align: left;
+      border: none; background: transparent; padding: 10px 12px; font: inherit; color: var(--tekst);
+    }
+    .groep-knop:hover, .soort-knop:hover, .uitklap:hover { background: #f5f1ea; }
+    .groep-knop .naam { flex: 1; font-weight: bold; }
+    .soort-knop .naam { flex: 1; }
+    .tel { color: var(--grijs); font-size: 12px; min-width: 20px; text-align: right; }
+    .stip, .lijst-stip { width: 12px; height: 12px; border-radius: 50%; flex: none; border: 2px solid transparent; }
+    .vinkje {
+      width: 20px; height: 20px; border-radius: 5px; flex: none; display: grid; place-items: center;
+      border: 2px solid #94a3b8; color: #fff; font-size: 13px; font-weight: bold; line-height: 1;
+    }
+    .aan .vinkje { background: var(--accent); border-color: var(--accent); }
+    .deels .vinkje { background: #fdba74; border-color: #fdba74; }
+    .uit { opacity: 0.5; }
+    .uit .stip { background: transparent !important; border-color: #94a3b8; }
+    .uitklap {
+      width: 44px; border: none; border-left: 1px solid var(--lijn); background: transparent;
+      font-size: 16px; color: var(--tekst);
+    }
+    .uitklap span { display: inline-block; transition: transform 0.15s; }
+    .uitklap[aria-expanded="true"] span { transform: rotate(180deg); }
+    .soorten { flex-basis: 100%; border-top: 1px solid var(--lijn); background: #fbf9f5; }
+    .soort-knop { padding: 7px 12px 7px 34px; border-bottom: 1px solid #f1ece3; width: 100%; }
+    .soort-knop:last-child { border-bottom: none; }
+    @media (prefers-reduced-motion: reduce) { .uitklap span { transition: none; } }
+    #lijst { list-style: none; padding: 0; margin: 0; }
+    #lijst li button {
+      width: 100%; text-align: left; display: flex; align-items: center; gap: 8px;
+      border: none; background: transparent; padding: 6px 4px; border-bottom: 1px solid var(--lijn); font: inherit;
+    }
+    #lijst li button:hover { background: #f1ece3; }
+    #lijst .soort-tekst { color: var(--grijs); font-size: 12px; margin-left: auto; }
+    /* ---------- Infopaneel van een plek ---------- */
+    #blok-info { padding: 0 0 24px; }
+    #info-leeg { padding: 20px; color: var(--grijs); line-height: 1.5; }
+    #info-leeg h2 { color: var(--tekst); font-size: 22px; margin: 0 0 8px; }
+    .info-kop { padding: 18px 20px 14px; border-bottom: 1px solid var(--lijn); }
+    .chip-groep {
+      display: inline-flex; align-items: center; gap: 6px; font-family: Arial, sans-serif;
+      font-size: 12px; color: #fff; border-radius: 999px; padding: 3px 10px; margin-bottom: 8px;
+    }
+    .info-kop h2 { margin: 0; font-size: 24px; line-height: 1.2; }
+    #plek-soort { color: var(--grijs); font-family: Arial, sans-serif; font-size: 13px; margin-top: 4px; }
+    .status-rij { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; font-family: Arial, sans-serif; font-size: 12px; }
+    .status { border-radius: 4px; padding: 3px 8px; background: #e7f5ec; color: #166534; }
+    .status.weg { background: #fde8e8; color: #991b1b; }
+    .status.grijs { background: #eef0f3; color: #374151; }
 
-    /* Info van een plek */
-    #plek-meta { color: #555; font-size: 14px; margin: 0 0 8px; }
-    #plek-tekst { margin: 0 0 12px; }
-    #tijdlijn { list-style: none; padding: 0; margin: 0; }
-    #tijdlijn li { margin-bottom: 12px; padding-left: 10px; border-left: 3px solid #999; }
-    #tijdlijn .jaar { font-weight: bold; }
-    #tijdlijn .bron { font-size: 12px; color: #555; }
+    .periode { padding: 14px 20px 6px; font-family: Arial, sans-serif; }
+    .periode-titel { font-size: 12px; color: var(--grijs); margin-bottom: 6px; }
+    .spoor { position: relative; height: 10px; background: #ece6db; border-radius: 5px; }
+    .spoor .deel { position: absolute; top: 0; height: 10px; border-radius: 5px; }
+    .spoor .nu {
+      position: absolute; top: -4px; width: 2px; height: 18px; background: var(--tekst);
+      transform: translateX(-1px);
+    }
+    .spoor-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--grijs); margin-top: 4px; }
+
+    .feiten { margin: 8px 20px 0; padding: 10px 0; border-top: 1px solid var(--lijn); border-bottom: 1px solid var(--lijn);
+              display: grid; grid-template-columns: 90px 1fr; gap: 6px 10px; font-family: Arial, sans-serif; font-size: 13px; }
+    .feiten dt { color: var(--grijs); }
+    .feiten dd { margin: 0; overflow-wrap: anywhere; }
+    .feiten a { color: var(--accent); }
+
+    #plek-tekst { margin: 14px 20px 0; line-height: 1.55; }
+    .acties { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 20px 0; }
+    .acties button {
+      font-family: Arial, sans-serif; font-size: 13px; padding: 6px 12px;
+      border: 1px solid var(--lijn); background: #fff; border-radius: 6px;
+    }
+    .acties button:hover { border-color: var(--accent); }
+    .acties a.site-knop {
+      font-family: Arial, sans-serif; font-size: 13px; padding: 6px 12px; border-radius: 6px;
+      background: var(--accent); color: #fff; text-decoration: none; border: 1px solid var(--accent);
+    }
+    .acties a.site-knop:hover { background: #9a3412; }
+    .socials { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 20px 0; font-family: Arial, sans-serif; font-size: 12px; }
+    .socials .label { color: var(--grijs); margin-right: 2px; }
+    .socials a {
+      padding: 4px 10px; border-radius: 999px; border: 1px solid var(--lijn); background: #fff;
+      color: var(--tekst); text-decoration: none;
+    }
+    .socials a:hover { border-color: var(--accent); color: var(--accent); }
+    #site-notitie { margin: 8px 20px 0; font-family: Arial, sans-serif; font-size: 12px; color: var(--grijs); }
+
+    .info-sectie { margin: 18px 20px 0; font-family: Arial, sans-serif; font-size: 13px; font-weight: bold; color: var(--grijs); }
+    #tijdlijn { list-style: none; padding: 0; margin: 10px 20px 0; position: relative; }
+    #tijdlijn::before { content: ''; position: absolute; left: 5px; top: 6px; bottom: 6px; width: 2px; background: #e3ddd2; }
+    #tijdlijn li { position: relative; padding: 0 0 14px 22px; }
+    #tijdlijn li::before {
+      content: ''; position: absolute; left: 0; top: 4px; width: 12px; height: 12px;
+      border-radius: 50%; background: var(--accent); border: 2px solid var(--papier); box-sizing: border-box;
+    }
+    #tijdlijn li.later { opacity: 0.45; }
+    #tijdlijn li.later::before { background: #b8b0a3; }
+    #tijdlijn li.huidig::before { box-shadow: 0 0 0 3px #fdba74; }
+    #tijdlijn li.scheiding { padding-bottom: 12px; font-family: Arial, sans-serif; font-size: 11px; color: var(--grijs); }
+    #tijdlijn li.scheiding::before { background: var(--tekst); width: 8px; height: 8px; left: 2px; top: 3px; }
+    #tijdlijn .jaar {
+      font-weight: bold; color: var(--accent); font-family: Arial, sans-serif; font-size: 13px;
+      border: none; background: none; padding: 0; cursor: pointer; text-decoration: underline dotted;
+    }
+    #tijdlijn span.jaar { cursor: default; text-decoration: none; }
+    #tijdlijn .tekst { line-height: 1.45; margin-top: 2px; }
+    #tijdlijn .bron { font-size: 11px; color: var(--grijs); font-family: Arial, sans-serif; margin-top: 2px; }
+    #tijdlijn .bron a { color: var(--grijs); }
+
+    /* ---------- Kaartwissel nu / oude kaart ---------- */
+    .kaartwissel { margin-left: auto; display: flex; align-items: center; gap: 10px; font-family: Arial, sans-serif; font-size: 13px; }
+    .kaartwissel .knoppenpaar { display: flex; border: 1px solid #475569; border-radius: 6px; overflow: hidden; }
+    .kaartwissel button { background: transparent; color: #fff; border: none; padding: 6px 12px; }
+    .kaartwissel button[aria-pressed="true"] { background: var(--accent); }
+    .kaartwissel button:disabled { opacity: 0.4; cursor: not-allowed; }
+    #kaartlabel { color: #cbd5e1; }
+
+    /* ---------- Markers ---------- */
+    .pin { background: transparent; border: none; }
+    .pin span {
+      display: block; width: 22px; height: 22px; border-radius: 50%;
+      border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    }
+    .pin.actief span { transform: scale(1.4); outline: 3px solid var(--accent); }
+
+    /* ---------- Tijdlijn onderaan ---------- */
+    .tijd {
+      background: var(--donker); color: #fff;
+      padding: 12px 20px 10px; font-family: Arial, sans-serif;
+    }
+    .kop { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 6px; }
+    #play {
+      width: 40px; height: 40px; border-radius: 50%; border: none;
+      background: var(--accent); color: #fff; font-size: 16px;
+    }
+    #jaar-groot { font-family: Georgia, serif; font-size: 34px; font-weight: bold; }
+    #jaar-sub { margin-left: 8px; color: #cbd5e1; font-size: 14px; }
+    #aantal { color: #cbd5e1; font-size: 14px; }
+    #presets { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+    #presets button {
+      background: transparent; color: #fff; border: 1px solid #475569;
+      border-radius: 6px; padding: 4px 10px; font-size: 13px;
+    }
+    .balk { position: relative; padding-top: 16px; }
+    #ticks { position: absolute; left: 8px; right: 8px; top: 0; height: 16px; }
+    #ticks button {
+      position: absolute; top: 0; width: 3px; height: 14px; padding: 0;
+      border: none; background: #fdba74; transform: translateX(-1px);
+    }
+    #ticks button:hover, #ticks button:focus { background: #fff; }
+    #jaar-slider { width: 100%; accent-color: var(--accent); margin: 0; }
+    .grenzen { display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8; }
+    .uitleg { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+
+    /* ---------- Smalle schermen ---------- */
+    @media (max-width: 800px) {
+      .midden { flex-direction: column; }
+      #paneel { width: 100%; max-height: 38vh; border-left: none; border-top: 1px solid var(--lijn); }
+      #presets { margin-left: 0; }
+    }
   </style>
 </head>
 <body>
 
-  <div id="pagina">
-    <div id="kaart"></div>
-
-    <div id="paneel">
-      <h1>Digitale Dorpskaart Vlodrop</h1>
-
-      <!-- Jaarslider -->
-      <div id="jaar-blok">
-        <label id="jaar-label" for="jaar-slider">Jaar: <span id="jaar-waarde">2026 (heden)</span></label>
-        <input type="range" id="jaar-slider" min="1832" max="2026" step="1" value="2026">
-        <div id="jaar-grenzen"><span>1832</span><span>heden</span></div>
-        <div id="aantal"></div>
-      </div>
-
-      <!-- Info van de aangeklikte plek -->
-      <div id="plek-info">
-        <h2 id="plek-titel">Kies een plek</h2>
-        <p id="plek-meta"></p>
-        <p id="plek-tekst">Klik op een plek op de kaart voor meer informatie.</p>
-        <ul id="tijdlijn"></ul>
+  <header class="top">
+    <div>
+      <h1>Vlodrop door de tijd</h1>
+      <p>Digitale dorpskaart, 1832 tot heden</p>
+    </div>
+    <div class="kaartwissel">
+      <span id="kaartlabel"></span>
+      <div class="knoppenpaar" role="group" aria-label="Achtergrondkaart">
+        <button id="kaart-nu" aria-pressed="true">Huidige kaart</button>
+        <button id="kaart-oud" aria-pressed="false">Oude kaart</button>
       </div>
     </div>
+  </header>
+
+  <div class="midden">
+    <div id="kaart" role="application" aria-label="Kaart van Vlodrop"></div>
+
+    <aside id="paneel">
+      <div class="tabs" role="tablist">
+        <button id="tab-info" role="tab" aria-selected="true">Info</button>
+        <button id="tab-filter" role="tab" aria-selected="false">Filter en lijst <span id="tab-aantal"></span></button>
+      </div>
+
+      <section id="blok-info" aria-live="polite">
+        <div id="info-leeg">
+          <h2>Kies een plek</h2>
+          <p>Klik op een punt op de kaart, of sleep de tijdlijn onderaan om te zien hoe Vlodrop veranderde.</p>
+        </div>
+
+        <div id="info-plek" hidden>
+          <div class="info-kop">
+            <span class="chip-groep" id="plek-groep"></span>
+            <h2 id="plek-titel"></h2>
+            <div id="plek-soort"></div>
+            <div class="status-rij" id="plek-status"></div>
+          </div>
+
+          <div class="periode">
+            <div class="periode-titel">Periode op de tijdlijn (1832 tot heden)</div>
+            <div class="spoor" id="spoor"><div class="deel" id="spoor-deel"></div><div class="nu" id="spoor-nu"></div></div>
+            <div class="spoor-labels"><span id="spoor-van"></span><span id="spoor-tot"></span></div>
+          </div>
+
+          <dl class="feiten" id="feiten"></dl>
+
+          <p id="plek-tekst"></p>
+
+          <div class="acties">
+            <button id="zoom-knop" type="button">Zoom naar deze plek</button>
+            <button id="bouwjaar-knop" type="button" hidden></button>
+            <a id="site-knop" class="site-knop" target="_blank" rel="noopener noreferrer" hidden></a>
+          </div>
+          <p id="site-notitie"></p>
+          <div class="socials" id="socials" hidden></div>
+
+          <div class="info-sectie">Tijdlijn</div>
+          <ol id="tijdlijn"></ol>
+        </div>
+      </section>
+
+      <section id="blok-filter" hidden>
+        <input type="search" id="zoek" placeholder="Zoek op naam of soort..." aria-label="Zoeken">
+        <div class="knoppen">
+          <button id="alles-aan">Alles aan</button>
+          <button id="alles-uit">Alles uit</button>
+        </div>
+        <div id="groepen"></div>
+        <h3>Plekken in dit jaar</h3>
+        <ul id="lijst"></ul>
+      </section>
+    </aside>
   </div>
+
+  <footer class="tijd">
+    <div class="kop">
+      <button id="play" aria-label="Tijdlijn afspelen">&#9654;</button>
+      <div>
+        <span id="jaar-groot">2026</span><span id="jaar-sub">heden</span>
+      </div>
+      <div id="aantal"></div>
+      <div id="presets"></div>
+    </div>
+    <div class="balk">
+      <div id="ticks" aria-label="Jaren met gebeurtenissen"></div>
+      <input type="range" id="jaar-slider" min="1832" max="2026" step="1" value="2026" aria-label="Kies een jaar">
+    </div>
+    <div class="grenzen"><span>1832</span><span>heden</span></div>
+    <div class="uitleg">Oranje streepjes zijn jaren waarin iets gebeurde. Klik erop om erheen te springen.</div>
+  </footer>
 
   <!-- Leaflet: de kaartbibliotheek (code) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Proj4 + Proj4Leaflet: nodig voor de oude kaarten (die gebruiken het Nederlandse RD-stelsel) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4leaflet/1.0.2/proj4leaflet.min.js"></script>
 
   <script>
     const MIN_JAAR = 1832;
     const MAX_JAAR = 2026;
 
-    let gekozenJaar = MAX_JAAR;   // het jaar dat de slider nu aangeeft
-    let gekozenPlekId = null;     // de plek die nu in het paneel staat
-    let aanvraagNummer = 0;       // om te voorkomen dat een oud antwoord een nieuw overschrijft
+    // Kleur per groep (Winkels, Horeca, enzovoort)
+    const GROEP_KLEUR = {
+      'Winkels': '#be185d', 'Horeca': '#ea580c', 'Zorg': '#0e7490', 'Onderwijs': '#d97706',
+      'Diensten': '#1d4ed8', 'Sport & recreatie': '#15803d', 'Voorzieningen': '#0f766e',
+      'Religie': '#6d28d9', 'Erfgoed': '#7c2d12', 'Bedrijven': '#475569',
+      'Verblijf & toerisme': '#a21caf', 'Verenigingen': '#65a30d', 'Overig': '#6b7280'
+    };
+    const kleurVan = groep => GROEP_KLEUR[groep] || '#333333';
 
-    // 1. Kaart maken, begin bij het centrum van Vlodrop
-    const kaart = L.map('kaart').setView([51.1315, 6.0750], 16);
+    let gekozenJaar = MAX_JAAR;     // het jaar dat nu getoond wordt
+    let gekozenPlekId = null;       // de plek die in het paneel staat
+    let laatstGetoondJaar = null;   // het jaar van de vorige aanvraag
+    let aanvraagNummer = 0;         // voorkomt dat een oud antwoord een nieuw overschrijft
+    let huidigePlekken = [];        // plekken van het gekozen jaar
+    const verborgenTypes = new Set();   // soorten die uitgezet zijn met de filters
+    let zoekTekst = '';                 // wat in het zoekveld staat
+    const groepenData = new Map();      // groep -> lijst met soorten (komt uit de database)
+    const tellers = { groep: new Map(), soort: new Map() };   // aantallen in het gekozen jaar
+    const groepBoxen = new Map();       // groep -> checkbox
+    const soortBoxen = new Map();       // soort -> checkbox
+    const markersPerId = new Map();     // plek-id -> marker
+    let speelt = false;             // staat het afspelen aan?
+    let afspeelTimer = null;        // timer voor de volgende stap
+    const STAP_MS = 150;            // wachttijd tussen twee stappen (2 jaar per stap)
+    const PAUZE_MS = 4500;          // hoe lang we stilstaan bij een nieuwe plek
 
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap-bijdragers'
-    }).addTo(kaart);
+    const el = id => document.getElementById(id);
 
-    // Een laag waar we alle markers in stoppen; handig om ze in één keer te wissen
-    const markerLaag = L.layerGroup().addTo(kaart);
+    // ---------- 1. Kaart (huidig of oud) ----------
+    // Oude kaarten komen van Topotijdreis (Kadaster / Esri Nederland). Die tegels gebruiken het
+    // Nederlandse RD-stelsel (EPSG:28992) in plaats van het wereldstelsel van OpenStreetMap.
+    // Daarom maken we bij het wisselen een nieuwe kaart met een ander coordinatenstelsel.
+    const TIJDREIS_JAREN = [1815, 1820, 1821, 1850, 1852, 1858, 1859, 1860, 1861, 1863, 1864, 1865, 1866,
+      1867, 1868, 1870, 1872, 1873, 1874, 1875, 1876, 1877, 1880, 1885, 1887, 1888, 1889, 1891, 1893, 1894,
+      1896, 1900, 1901, 1903, 1905, 1910, 1915, 1916, 1918, 1919, 1920, 1921, 1923, 1924, 1925, 1926, 1927,
+      1928, 1929, 1930, 1933, 1935, 1937, 1939, 1940, 1941, 1943, 1944, 1945, 1946, 1948, 1949, 1950, 1951,
+      1952, 1955, 1956, 1958, 1960, 1965, 1966, 1970, 1972, 1975, 1978, 1980, 1982, 1983, 1984, 1986, 1990,
+      1995, 1996, 1998, 2000, 2005, 2014, 2016];
+    const tijdreisUrl = jaar => 'https://tiles.arcgis.com/tiles/nSZVuSZjHpEZZbRo/arcgis/rest/services/Historische_tijdreis_'
+      + jaar + '/MapServer/tile/{z}/{y}/{x}';
 
-    // 2. Plekken ophalen voor een bepaald jaar en op de kaart zetten
-    function laadPlekken(jaar) {
-      const nummer = ++aanvraagNummer;
-
-      fetch('api.php?jaar=' + jaar)
-        .then(antwoord => antwoord.json())
-        .then(plekken => {
-          if (nummer !== aanvraagNummer) return;   // er is al een nieuwere aanvraag
-          if (plekken.fout) { console.error(plekken.fout); return; }
-
-          markerLaag.clearLayers();
-
-          plekken.forEach(plek => {
-            const marker = L.marker([plek.lat, plek.lon]).addTo(markerLaag);
-            marker.bindTooltip(plek.naam);
-            marker.on('click', () => toonPlek(plek.id));
-          });
-
-          document.getElementById('aantal').textContent =
-            plekken.length + (plekken.length === 1 ? ' plek' : ' plekken') + ' in dit jaar';
-
-          // Staat de gekozen plek er in dit jaar niet meer? Dan het paneel leegmaken.
-          if (gekozenPlekId !== null && !plekken.some(p => p.id === gekozenPlekId)) {
-            resetPaneel();
-          } else if (gekozenPlekId !== null) {
-            toonPlek(gekozenPlekId);               // geschiedenis opnieuw tot dit jaar
-          }
-        })
-        .catch(fout => console.error('Kon plekken niet ophalen:', fout));
+    // Het meest recente kaartjaar dat niet later is dan het gekozen jaar
+    function tijdreisJaar(jaar) {
+      let gekozen = TIJDREIS_JAREN[0];
+      TIJDREIS_JAREN.forEach(j => { if (j <= jaar) gekozen = j; });
+      return gekozen;
     }
 
-    // 3. Details van één plek ophalen en in het paneel tonen
+    let RD = null;
+    if (window.L && L.Proj && window.proj4) {
+      RD = new L.Proj.CRS('EPSG:28992',
+        '+proj=sterea +lat_0=52.15616055555555 +lon_0=5.38763888888889 +k=0.9999079 +x_0=155000 +y_0=463000'
+        + ' +ellps=bessel +towgs84=565.417,50.3319,465.552,-0.398957,0.343988,-1.8774,4.0725 +units=m +no_defs',
+        {
+          origin: [-30515500, 31112400],
+          resolutions: [3251.206502413005, 1625.6032512065026, 812.8016256032513, 406.40081280162565,
+            203.20040640081282, 101.60020320040641, 50.800101600203206, 25.400050800101603,
+            12.700025400050801, 6.350012700025401, 3.1750063500127004, 1.5875031750063502]
+        });
+    }
+
+    let kaart = null;
+    let markerLaag = null;
+    let kaartModus = 'nu';     // 'nu' of 'oud'
+    let oudeLaag = null;
+    let oudKaartJaar = null;
+
+    function maakKaart(modus, centrum, zoom) {
+      if (kaart) kaart.remove();
+      kaartModus = modus;
+
+      if (modus === 'oud') {
+        kaart = L.map('kaart', { crs: RD, minZoom: 5, maxZoom: 11 });
+        oudKaartJaar = tijdreisJaar(gekozenJaar);
+        oudeLaag = L.tileLayer(tijdreisUrl(oudKaartJaar), {
+          maxZoom: 11,
+          attribution: 'Historische kaart: Kadaster / Esri Nederland (Topotijdreis)'
+        }).addTo(kaart);
+      } else {
+        kaart = L.map('kaart', { maxZoom: 19 });
+        oudeLaag = null;
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap-bijdragers'
+        }).addTo(kaart);
+      }
+
+      markerLaag = L.layerGroup().addTo(kaart);
+      kaart.setView(centrum, zoom);
+      updateKaartLabel();
+      tekenMarkers();
+    }
+
+    function updateKaartLabel() {
+      el('kaart-nu').setAttribute('aria-pressed', kaartModus === 'nu' ? 'true' : 'false');
+      el('kaart-oud').setAttribute('aria-pressed', kaartModus === 'oud' ? 'true' : 'false');
+      el('kaartlabel').textContent = kaartModus === 'oud' ? 'Kaart van ' + oudKaartJaar : '';
+    }
+
+    // Zoomniveaus omrekenen: RD-niveau 11 komt ongeveer overeen met zoom 16 van OpenStreetMap
+    el('kaart-oud').addEventListener('click', () => {
+      if (kaartModus === 'oud' || !RD) return;
+      maakKaart('oud', kaart.getCenter(), Math.max(5, Math.min(11, kaart.getZoom() - 5)));
+    });
+    el('kaart-nu').addEventListener('click', () => {
+      if (kaartModus === 'nu') return;
+      maakKaart('nu', kaart.getCenter(), kaart.getZoom() + 5);
+    });
+    if (!RD) {
+      el('kaart-oud').disabled = true;
+      el('kaart-oud').title = 'De oude kaart kon niet laden (geen internet?)';
+    }
+
+    // Bij een ander jaar de juiste oude kaart tonen
+    function updateOudeKaart() {
+      if (kaartModus !== 'oud' || !oudeLaag) return;
+      const jaar = tijdreisJaar(gekozenJaar);
+      if (jaar === oudKaartJaar) return;
+      oudKaartJaar = jaar;
+      oudeLaag.setUrl(tijdreisUrl(jaar));
+      updateKaartLabel();
+    }
+
+    const dichtbijZoom = () => (kaartModus === 'oud' ? 11 : 17);
+
+    // ---------- 2. Plekken ophalen en tekenen ----------
+    // Geeft (via een belofte) de plekken terug die in dit jaar NIEUW zijn ten opzichte van het vorige jaar
+    function laadPlekken(jaar) {
+      const nummer = ++aanvraagNummer;
+      const vorigeIds = new Set(huidigePlekken.map(p => p.id));
+      const vorigJaar = laatstGetoondJaar;
+      laatstGetoondJaar = jaar;
+
+      return fetch('api.php?jaar=' + jaar)
+        .then(antwoord => antwoord.json())
+        .then(plekken => {
+          if (nummer !== aanvraagNummer) return [];     // er is al een nieuwere aanvraag
+          if (plekken.fout) { console.error(plekken.fout); return []; }
+
+          huidigePlekken = plekken;
+          tekenMarkers();
+
+          // Staat de gekozen plek er dit jaar niet meer? Dan het paneel leegmaken.
+          if (gekozenPlekId !== null) {
+            if (plekken.some(p => p.id === gekozenPlekId)) toonPlek(gekozenPlekId);
+            else resetPaneel();
+          }
+
+          // Nieuw = er nu wel, vorige keer niet, en we gaan vooruit in de tijd
+          if (vorigJaar === null || jaar <= vorigJaar) return [];
+          return plekken.filter(p => !vorigeIds.has(p.id) && p.jaar_onzeker !== 1 && isZichtbaar(p));
+        })
+        .catch(fout => { console.error('Kon plekken niet ophalen:', fout); return []; });
+    }
+
+    // Hoort deze plek bij wat de filters en het zoekveld toestaan?
+    function isZichtbaar(p) {
+      if (verborgenTypes.has(p.type)) return false;
+      if (zoekTekst === '') return true;
+      return (p.naam + ' ' + p.type + ' ' + p.groep).toLowerCase().includes(zoekTekst);
+    }
+
+    function tekenMarkers() {
+      if (!markerLaag) return;
+      markerLaag.clearLayers();
+      markersPerId.clear();
+
+      const zichtbaar = huidigePlekken.filter(isZichtbaar);
+
+      zichtbaar.forEach(plek => {
+        const icoon = L.divIcon({
+          className: 'pin',
+          html: '<span style="background:' + kleurVan(plek.groep) + '"></span>',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11]
+        });
+        const marker = L.marker([plek.lat, plek.lon], { icon: icoon, title: plek.naam })
+          .addTo(markerLaag);
+        marker.bindTooltip(plek.naam);
+        marker.on('click', () => toonPlek(plek.id));
+        markersPerId.set(plek.id, marker);
+      });
+
+      el('aantal').textContent =
+        zichtbaar.length + (zichtbaar.length === 1 ? ' plek' : ' plekken') + ' in dit jaar';
+      el('tab-aantal').textContent = '(' + zichtbaar.length + ')';
+      markeerActief();
+      updateTellers();
+      updateLijst(zichtbaar);
+    }
+
+    function markeerActief() {
+      markersPerId.forEach((marker, id) => {
+        const element = marker.getElement && marker.getElement();
+        if (element) element.classList.toggle('actief', id === gekozenPlekId);
+      });
+    }
+
+    // ---------- 3. Paneel met details van een plek ----------
+    let getoondePlek = null;   // de gegevens van de plek in het paneel
+
     function toonPlek(plekId) {
       gekozenPlekId = plekId;
+      markeerActief();
+      toonTab('info');
 
       fetch('api.php?plek=' + plekId + '&jaar=' + gekozenJaar)
         .then(antwoord => antwoord.json())
         .then(plek => {
           if (plek.fout) { console.error(plek.fout); return; }
           if (plekId !== gekozenPlekId) return;
-
-          const bestaatTot = plek.tot_jaar ? plek.tot_jaar : 'heden';
-          const periode = plek.jaar_onzeker === 1
-            ? 'huidige voorziening (startjaar nog te onderzoeken)'
-            : plek.van_jaar + ' tot ' + bestaatTot;
-
-          // textContent in plaats van innerHTML: veiliger tegen ongewenste code
-          document.getElementById('plek-titel').textContent = plek.naam;
-          document.getElementById('plek-meta').textContent =
-            plek.type + ' | ' + periode;
-          document.getElementById('plek-tekst').textContent = plek.beschrijving || '';
-
-          const lijst = document.getElementById('tijdlijn');
-          lijst.replaceChildren();
-
-          plek.geschiedenis.forEach(item => {
-            const li = document.createElement('li');
-
-            const jaar = document.createElement('div');
-            jaar.className = 'jaar';
-            jaar.textContent = item.jaar;
-
-            const tekst = document.createElement('div');
-            tekst.textContent = item.tekst;
-
-            li.append(jaar, tekst);
-
-            if (item.bron) {
-              const bron = document.createElement('div');
-              bron.className = 'bron';
-              bron.textContent = 'Bron: ' + item.bron;
-              li.append(bron);
-            }
-            lijst.append(li);
-          });
+          getoondePlek = plek;
+          tekenPaneel(plek);
         })
         .catch(fout => console.error('Kon plek niet ophalen:', fout));
     }
 
-    function resetPaneel() {
-      gekozenPlekId = null;
-      document.getElementById('plek-titel').textContent = 'Kies een plek';
-      document.getElementById('plek-meta').textContent = '';
-      document.getElementById('plek-tekst').textContent =
-        'Klik op een plek op de kaart voor meer informatie.';
-      document.getElementById('tijdlijn').replaceChildren();
+    // Maakt een link, alleen als het een veilige https-link is
+    function bronElement(titel, url) {
+      if (url && url.startsWith('https://')) {
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = titel;
+        return link;
+      }
+      return document.createTextNode(titel);
     }
 
-    // 4. De slider: bij elke verschuiving het jaar bijwerken en de kaart verversen
-    const slider = document.getElementById('jaar-slider');
-    const jaarWaarde = document.getElementById('jaar-waarde');
+    function tekenPaneel(plek) {
+      el('info-leeg').hidden = true;
+      el('info-plek').hidden = false;
 
-    slider.addEventListener('input', () => {
-      gekozenJaar = Number(slider.value);
-      jaarWaarde.textContent = gekozenJaar === MAX_JAAR ? gekozenJaar + ' (heden)' : gekozenJaar;
-      laadPlekken(gekozenJaar);
+      // Kop
+      const chip = el('plek-groep');
+      chip.textContent = plek.groep;
+      chip.style.background = kleurVan(plek.groep);
+      el('plek-titel').textContent = plek.naam;
+      el('plek-soort').textContent = plek.type;
+
+      // Statuslabels
+      const status = el('plek-status');
+      status.replaceChildren();
+      const label = (tekst, soort) => {
+        const s = document.createElement('span');
+        s.className = 'status ' + (soort || '');
+        s.textContent = tekst;
+        status.append(s);
+      };
+      if (plek.tot_jaar) label('Verdwenen in ' + plek.tot_jaar, 'weg');
+      else label('Bestaat nog');
+      if (plek.jaar_onzeker === 1) {
+        label(plek.van_jaar >= MAX_JAAR ? 'Startjaar onbekend' : 'Er sinds uiterlijk ' + plek.van_jaar, 'grijs');
+      } else if (gekozenJaar > plek.van_jaar) {
+        label('In ' + gekozenJaar + ': ' + (gekozenJaar - plek.van_jaar) + ' jaar oud', 'grijs');
+      }
+      if (plek.coord_geschat === 1) label('Locatie bij benadering', 'grijs');
+
+      // Periodebalk
+      const breedte = MAX_JAAR - MIN_JAAR;
+      const bekendStart = !(plek.jaar_onzeker === 1 && plek.van_jaar >= MAX_JAAR);
+      const begin = Math.max(MIN_JAAR, plek.van_jaar);
+      const eind = plek.tot_jaar ? Math.min(MAX_JAAR, plek.tot_jaar) : MAX_JAAR;
+      const deel = el('spoor-deel');
+      deel.style.left = ((begin - MIN_JAAR) / breedte * 100) + '%';
+      deel.style.width = bekendStart ? Math.max(1, (eind - begin) / breedte * 100) + '%' : '0';
+      deel.style.background = kleurVan(plek.groep);
+      deel.style.opacity = plek.jaar_onzeker === 1 ? '0.5' : '1';
+      el('spoor-nu').style.left = ((gekozenJaar - MIN_JAAR) / breedte * 100) + '%';
+      el('spoor-van').textContent = !bekendStart ? 'startjaar onbekend'
+        : (plek.van_jaar < MIN_JAAR ? 'al vóór 1832 (' + plek.van_jaar + ')'
+        : (plek.jaar_onzeker === 1 ? 'uiterlijk ' : '') + plek.van_jaar);
+      el('spoor-tot').textContent = plek.tot_jaar ? 'tot ' + plek.tot_jaar : 'heden';
+
+      // Feitenlijstje
+      const feiten = el('feiten');
+      feiten.replaceChildren();
+      const feit = (naam, waarde) => {
+        const dt = document.createElement('dt');
+        dt.textContent = naam;
+        const dd = document.createElement('dd');
+        if (typeof waarde === 'string') dd.textContent = waarde; else dd.append(waarde);
+        feiten.append(dt, dd);
+      };
+      let periode = plek.van_jaar + ' tot ' + (plek.tot_jaar || 'heden');
+      if (plek.jaar_onzeker === 1) {
+        periode = plek.van_jaar >= MAX_JAAR ? 'nog te onderzoeken'
+          : 'sinds uiterlijk ' + plek.van_jaar + (plek.tot_jaar ? ' tot ' + plek.tot_jaar : '');
+      }
+      feit('Periode', periode);
+      if (plek.adres) feit('Adres', plek.adres + ', Vlodrop');
+      if (plek.bag_bouwjaar) feit('Gebouw', 'bouwjaar ' + plek.bag_bouwjaar + ' (volgens de BAG)');
+      feit('Soort', plek.type + ' (' + String(plek.groep).toLowerCase() + ')');
+      if (plek.plek_bron) feit('Bron', bronElement(plek.plek_bron, plek.plek_bron_url));
+
+      el('plek-tekst').textContent = plek.beschrijving || '';
+      el('plek-tekst').hidden = !plek.beschrijving;
+
+      // Knop "Ga naar bouwjaar"
+      const knop = el('bouwjaar-knop');
+      knop.hidden = !(plek.van_jaar >= MIN_JAAR && plek.van_jaar < MAX_JAAR && plek.van_jaar !== gekozenJaar);
+      knop.textContent = 'Ga naar ' + plek.van_jaar;
+
+      // Website-knop: eigen website, anders Wikipedia, anders een melding
+      const siteKnop = el('site-knop');
+      const veilig = url => typeof url === 'string' && /^https?:\/\//i.test(url);
+      if (veilig(plek.website)) {
+        siteKnop.href = plek.website;
+        siteKnop.textContent = 'Open website';
+        siteKnop.hidden = false;
+        el('site-notitie').textContent = '';
+      } else if (veilig(plek.wikipedia)) {
+        siteKnop.href = plek.wikipedia;
+        siteKnop.textContent = 'Open Wikipedia';
+        siteKnop.hidden = false;
+        el('site-notitie').textContent = 'Deze plek heeft geen eigen website, daarom openen we de Wikipedia-pagina.';
+      } else {
+        siteKnop.hidden = true;
+        siteKnop.removeAttribute('href');
+        el('site-notitie').textContent = 'Er is geen website of Wikipedia-pagina bekend voor deze plek.';
+      }
+
+      // Social media: alleen links die echt naar dat platform gaan
+      const SOCIALS = [
+        ['facebook', 'Facebook', ['facebook.com', 'fb.com']],
+        ['instagram', 'Instagram', ['instagram.com']],
+        ['linkedin', 'LinkedIn', ['linkedin.com']],
+        ['tiktok', 'TikTok', ['tiktok.com']]
+      ];
+      const socials = el('socials');
+      socials.replaceChildren();
+      SOCIALS.forEach(([veld, naam, domeinen]) => {
+        const url = plek[veld];
+        if (!socialGeldig(url, domeinen)) return;
+        if (socials.children.length === 0) {
+          const label = document.createElement('span');
+          label.className = 'label';
+          label.textContent = 'Social media:';
+          socials.append(label);
+        }
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = naam;
+        socials.append(link);
+      });
+      socials.hidden = socials.children.length === 0;
+
+      // Tijdlijn: alle gebeurtenissen, latere grijs, met een streep bij het gekozen jaar
+      const lijst = el('tijdlijn');
+      lijst.replaceChildren();
+      let streepGezet = false;
+      plek.geschiedenis.forEach(item => {
+        if (item.later && !streepGezet) {
+          lijst.append(scheiding('Je bent nu in ' + gekozenJaar + '. Hieronder: wat later gebeurt.'));
+          streepGezet = true;
+        }
+        const li = document.createElement('li');
+        if (item.later) li.classList.add('later');
+        if (item.jaar === gekozenJaar) li.classList.add('huidig');
+
+        let jaar;
+        if (item.jaar >= MIN_JAAR && item.jaar <= MAX_JAAR) {
+          jaar = document.createElement('button');
+          jaar.type = 'button';
+          jaar.title = 'Ga naar ' + item.jaar;
+          jaar.addEventListener('click', () => { stopAfspelen(); zetJaar(item.jaar); });
+        } else {
+          jaar = document.createElement('span');
+        }
+        jaar.className = 'jaar';
+        jaar.textContent = item.jaar;
+
+        const tekst = document.createElement('div');
+        tekst.className = 'tekst';
+        tekst.textContent = item.tekst;
+        li.append(jaar, tekst);
+
+        if (item.bron) {
+          const bron = document.createElement('div');
+          bron.className = 'bron';
+          bron.append('Bron: ', bronElement(item.bron, item.bron_url));
+          li.append(bron);
+        }
+        lijst.append(li);
+      });
+      if (plek.geschiedenis.length === 0) lijst.append(scheiding('Nog geen gebeurtenissen bekend.'));
+    }
+
+    // Controleert of een link https is en echt bij het platform hoort (bijv. facebook.com)
+    function socialGeldig(url, domeinen) {
+      if (typeof url !== 'string' || url === '') return false;
+      try {
+        const u = new URL(url);
+        const host = u.hostname.toLowerCase();
+        return u.protocol === 'https:' && domeinen.some(d => host === d || host.endsWith('.' + d));
+      } catch (fout) {
+        return false;
+      }
+    }
+
+    function scheiding(tekst) {
+      const li = document.createElement('li');
+      li.className = 'scheiding';
+      li.textContent = tekst;
+      return li;
+    }
+
+    el('zoom-knop').addEventListener('click', () => {
+      if (getoondePlek) kaart.setView([getoondePlek.lat, getoondePlek.lon], dichtbijZoom());
+    });
+    el('bouwjaar-knop').addEventListener('click', () => {
+      if (getoondePlek) { stopAfspelen(); zetJaar(getoondePlek.van_jaar); }
     });
 
-    // 5. Bij het openen van de pagina: toon het heden
-    laadPlekken(gekozenJaar);
+    function resetPaneel() {
+      gekozenPlekId = null;
+      getoondePlek = null;
+      markeerActief();
+      el('info-leeg').hidden = false;
+      el('info-plek').hidden = true;
+    }
+
+    // ---------- 4. Jaar kiezen ----------
+    const slider = el('jaar-slider');
+
+    function zetJaar(jaar) {
+      gekozenJaar = Math.max(MIN_JAAR, Math.min(MAX_JAAR, Number(jaar)));
+      slider.value = gekozenJaar;
+      el('jaar-groot').textContent = gekozenJaar;
+      el('jaar-sub').textContent = gekozenJaar === MAX_JAAR ? 'heden' : '';
+      updateOudeKaart();
+      return laadPlekken(gekozenJaar);
+    }
+
+    slider.addEventListener('input', () => { stopAfspelen(); zetJaar(slider.value); });
+
+    // Snelknoppen
+    [1832, 1900, 1950, 2000, 2026].forEach(jaar => {
+      const knop = document.createElement('button');
+      knop.textContent = jaar === MAX_JAAR ? 'Nu' : jaar;
+      knop.addEventListener('click', () => { stopAfspelen(); zetJaar(jaar); });
+      el('presets').append(knop);
+    });
+
+    // ---------- 5. Afspelen ----------
+    function stopAfspelen() {
+      speelt = false;
+      if (afspeelTimer !== null) {
+        clearTimeout(afspeelTimer);
+        afspeelTimer = null;
+      }
+      el('play').textContent = '\u25B6';
+      el('play').setAttribute('aria-label', 'Tijdlijn afspelen');
+    }
+
+    // Opent de info van een nieuwe plek en schuift de kaart er zo nodig naartoe
+    function toonNieuwePlek(plek) {
+      el('jaar-sub').textContent = 'Nieuw: ' + plek.naam;
+      const positie = [plek.lat, plek.lon];
+      if (!kaart.getBounds().contains(positie)) kaart.panTo(positie);
+      toonPlek(plek.id);
+    }
+
+    // Een stap vooruit. Is er een nieuwe plek? Dan stilstaan en de info tonen.
+    function volgendeStap() {
+      if (!speelt) return;
+      if (gekozenJaar >= MAX_JAAR) { stopAfspelen(); return; }
+
+      zetJaar(gekozenJaar + 2).then(nieuwePlekken => {
+        if (!speelt) return;                       // ondertussen gepauzeerd
+
+        if (nieuwePlekken.length === 0) {
+          afspeelTimer = setTimeout(volgendeStap, STAP_MS);
+        } else {
+          toonNieuweLijst(nieuwePlekken, 0);
+        }
+      });
+    }
+
+    // Toont de nieuwe plekken een voor een, elk even in beeld
+    function toonNieuweLijst(lijst, nummer) {
+      if (!speelt) return;
+      if (nummer >= lijst.length) {
+        afspeelTimer = setTimeout(volgendeStap, STAP_MS);
+        return;
+      }
+      toonNieuwePlek(lijst[nummer]);
+      afspeelTimer = setTimeout(() => toonNieuweLijst(lijst, nummer + 1), PAUZE_MS);
+    }
+
+    el('play').addEventListener('click', () => {
+      if (speelt) { stopAfspelen(); return; }
+
+      speelt = true;
+      el('play').textContent = '\u23F8';
+      el('play').setAttribute('aria-label', 'Afspelen pauzeren');
+
+      if (gekozenJaar >= MAX_JAAR) {
+        zetJaar(MIN_JAAR).then(() => volgendeStapNaStart());   // opnieuw beginnen
+      } else {
+        volgendeStap();
+      }
+    });
+
+    function volgendeStapNaStart() {
+      if (!speelt) return;
+      afspeelTimer = setTimeout(volgendeStap, STAP_MS);
+    }
+
+    // ---------- 6. Filterpaneel (rechts) ----------
+    function toonTab(naam) {
+      const info = naam === 'info';
+      el('blok-info').hidden = !info;
+      el('blok-filter').hidden = info;
+      el('tab-info').setAttribute('aria-selected', info ? 'true' : 'false');
+      el('tab-filter').setAttribute('aria-selected', info ? 'false' : 'true');
+    }
+    el('tab-info').addEventListener('click', () => toonTab('info'));
+    el('tab-filter').addEventListener('click', () => toonTab('filter'));
+
+    // Bouwt de lijst met groepen en soorten op uit de database
+    function bouwFilter(rijen) {
+      rijen.forEach(r => {
+        if (!groepenData.has(r.groep)) groepenData.set(r.groep, []);
+        groepenData.get(r.groep).push(r.type);
+      });
+
+      let nummer = 0;
+      groepenData.forEach((soorten, groep) => {
+        nummer++;
+        const blok = document.createElement('div');
+        blok.className = 'groep';
+
+        // De hele balk is een knop: aan of uit voor de hele groep
+        const knop = document.createElement('button');
+        knop.type = 'button';
+        knop.className = 'groep-knop aan';
+        const vinkje = document.createElement('span');
+        vinkje.className = 'vinkje';
+        vinkje.setAttribute('aria-hidden', 'true');
+        const stip = document.createElement('span');
+        stip.className = 'stip';
+        stip.style.background = kleurVan(groep);
+        const naam = document.createElement('span');
+        naam.className = 'naam';
+        naam.textContent = groep;
+        const tel = document.createElement('span');
+        tel.className = 'tel';
+        knop.append(vinkje, stip, naam, tel);
+        knop.addEventListener('click', () => {
+          // Staat alles aan? Dan alles uit. Anders (uit of deels) alles aan.
+          const allesAan = soorten.every(s => !verborgenTypes.has(s));
+          soorten.forEach(s => { if (allesAan) verborgenTypes.add(s); else verborgenTypes.delete(s); });
+          synchroniseerVinkjes();
+          tekenMarkers();
+        });
+
+        // Pijltje rechts: soorten tonen of verbergen
+        const uitklap = document.createElement('button');
+        uitklap.type = 'button';
+        uitklap.className = 'uitklap';
+        uitklap.setAttribute('aria-expanded', 'false');
+        uitklap.setAttribute('aria-controls', 'soorten-' + nummer);
+        uitklap.setAttribute('aria-label', 'Soorten van ' + groep + ' tonen');
+        const pijl = document.createElement('span');
+        pijl.textContent = '\u25BE';
+        pijl.setAttribute('aria-hidden', 'true');
+        uitklap.append(pijl);
+
+        const lijst = document.createElement('div');
+        lijst.className = 'soorten';
+        lijst.id = 'soorten-' + nummer;
+        lijst.hidden = true;
+        uitklap.addEventListener('click', () => {
+          const open = lijst.hidden;
+          lijst.hidden = !open;
+          uitklap.setAttribute('aria-expanded', open ? 'true' : 'false');
+          uitklap.setAttribute('aria-label', 'Soorten van ' + groep + (open ? ' verbergen' : ' tonen'));
+        });
+
+        // Elke soort is ook een hele knop
+        soorten.forEach(soort => {
+          const sKnop = document.createElement('button');
+          sKnop.type = 'button';
+          sKnop.className = 'soort-knop aan';
+          const sVinkje = document.createElement('span');
+          sVinkje.className = 'vinkje';
+          sVinkje.setAttribute('aria-hidden', 'true');
+          const sNaam = document.createElement('span');
+          sNaam.className = 'naam';
+          sNaam.textContent = soort;
+          const sTel = document.createElement('span');
+          sTel.className = 'tel';
+          sKnop.append(sVinkje, sNaam, sTel);
+          sKnop.addEventListener('click', () => {
+            if (verborgenTypes.has(soort)) verborgenTypes.delete(soort); else verborgenTypes.add(soort);
+            synchroniseerVinkjes();
+            tekenMarkers();
+          });
+          lijst.append(sKnop);
+          soortBoxen.set(soort, { knop: sKnop, vinkje: sVinkje, tel: sTel });
+        });
+
+        blok.append(knop, uitklap, lijst);
+        el('groepen').append(blok);
+        groepBoxen.set(groep, { knop, vinkje, tel });
+      });
+      synchroniseerVinkjes();
+      updateTellers();
+    }
+
+    // Zet een knop in de stand aan, uit of deels
+    function zetStand(box, stand) {
+      box.knop.classList.toggle('aan', stand === 'aan');
+      box.knop.classList.toggle('uit', stand === 'uit');
+      box.knop.classList.toggle('deels', stand === 'deels');
+      box.knop.setAttribute('aria-pressed', stand === 'aan' ? 'true' : stand === 'uit' ? 'false' : 'mixed');
+      box.vinkje.textContent = stand === 'aan' ? '\u2713' : stand === 'deels' ? '\u2013' : '';
+    }
+
+    // Zet alle knoppen gelijk aan wat er echt aan of uit staat
+    function synchroniseerVinkjes() {
+      soortBoxen.forEach((box, soort) => zetStand(box, verborgenTypes.has(soort) ? 'uit' : 'aan'));
+      groepenData.forEach((soorten, groep) => {
+        const aantalAan = soorten.filter(s => !verborgenTypes.has(s)).length;
+        const stand = aantalAan === soorten.length ? 'aan' : aantalAan === 0 ? 'uit' : 'deels';
+        zetStand(groepBoxen.get(groep), stand);
+      });
+    }
+
+    // Aantallen per groep en soort in het gekozen jaar
+    function updateTellers() {
+      tellers.groep.clear();
+      tellers.soort.clear();
+      huidigePlekken.forEach(p => {
+        tellers.groep.set(p.groep, (tellers.groep.get(p.groep) || 0) + 1);
+        tellers.soort.set(p.type, (tellers.soort.get(p.type) || 0) + 1);
+      });
+      groepBoxen.forEach((box, groep) => { box.tel.textContent = tellers.groep.get(groep) || 0; });
+      soortBoxen.forEach((box, soort) => { box.tel.textContent = tellers.soort.get(soort) || 0; });
+    }
+
+    // Lijst met plekken onder de filters; klikken zoomt naar de plek en opent de info
+    function updateLijst(zichtbaar) {
+      const lijst = el('lijst');
+      lijst.replaceChildren();
+      [...zichtbaar].sort((a, b) => a.naam.localeCompare(b.naam)).forEach(plek => {
+        const li = document.createElement('li');
+        const knop = document.createElement('button');
+        const stip = document.createElement('span');
+        stip.className = 'lijst-stip';
+        stip.style.background = kleurVan(plek.groep);
+        const naam = document.createElement('span');
+        naam.textContent = plek.naam;
+        const soort = document.createElement('span');
+        soort.className = 'soort-tekst';
+        soort.textContent = plek.type;
+        knop.append(stip, naam, soort);
+        knop.addEventListener('click', () => kiesPlek(plek));
+        li.append(knop);
+        lijst.append(li);
+      });
+    }
+
+    function kiesPlek(plek) {
+      stopAfspelen();
+      kaart.setView([plek.lat, plek.lon], Math.max(kaart.getZoom(), dichtbijZoom()));
+      toonPlek(plek.id);
+      toonTab('info');
+    }
+
+    el('zoek').addEventListener('input', () => {
+      zoekTekst = el('zoek').value.trim().toLowerCase();
+      tekenMarkers();
+    });
+    el('alles-aan').addEventListener('click', () => {
+      verborgenTypes.clear();
+      synchroniseerVinkjes();
+      tekenMarkers();
+    });
+    el('alles-uit').addEventListener('click', () => {
+      soortBoxen.forEach((box, soort) => verborgenTypes.add(soort));
+      synchroniseerVinkjes();
+      tekenMarkers();
+    });
+
+    fetch('api.php?types=1')
+      .then(antwoord => antwoord.json())
+      .then(rijen => { if (Array.isArray(rijen)) bouwFilter(rijen); })
+      .catch(fout => console.error('Kon soorten niet ophalen:', fout));
+
+    // ---------- 7. Streepjes op de tijdlijn (jaren met gebeurtenissen) ----------
+    fetch('api.php?jaren=1')
+      .then(antwoord => antwoord.json())
+      .then(jaren => {
+        if (!Array.isArray(jaren)) return;
+        jaren.forEach(item => {
+          const knop = document.createElement('button');
+          const percentage = (item.jaar - MIN_JAAR) / (MAX_JAAR - MIN_JAAR) * 100;
+          knop.style.left = percentage + '%';
+          knop.title = item.jaar + ' (' + item.aantal + (item.aantal === 1 ? ' gebeurtenis)' : ' gebeurtenissen)');
+          knop.setAttribute('aria-label', 'Ga naar ' + item.jaar);
+          knop.addEventListener('click', () => { stopAfspelen(); zetJaar(item.jaar); });
+          el('ticks').append(knop);
+        });
+      })
+      .catch(fout => console.error('Kon jaren niet ophalen:', fout));
+
+    // ---------- 8. Starten: toon het heden ----------
+    maakKaart('nu', [51.1315, 6.0750], 16);
+    zetJaar(MAX_JAAR);
   </script>
 </body>
 </html>

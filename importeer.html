@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plekken importeren (alleen voor de projectgroep)</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 16px; color: #1f2937; }
+    h1 { font-size: 24px; } h2 { font-size: 18px; margin-top: 32px; }
+    button { padding: 8px 14px; font-size: 14px; cursor: pointer; }
+    .melding { background: #fef3c7; border: 1px solid #f59e0b; padding: 10px; border-radius: 6px; font-size: 14px; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { border-bottom: 1px solid #e5e7eb; text-align: left; padding: 4px 8px; }
+    #lijst { max-height: 420px; overflow-y: auto; border: 1px solid #e5e7eb; }
+    label { display: block; margin: 8px 0 2px; font-size: 14px; }
+    input, select { padding: 6px; font-size: 14px; width: 100%; max-width: 420px; }
+    .rij { display: flex; gap: 12px; flex-wrap: wrap; }
+    .rij > div { flex: 1; min-width: 160px; }
+    #status, #status2 { margin-top: 10px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>Plekken importeren</h1>
+  <p class="melding">
+    Alleen voor jullie eigen laptop. Verwijder <code>importeer.html</code> en <code>importeer.php</code>
+    voordat de site ergens online komt. Er worden alleen naam, soort, adres en locatie opgeslagen,
+    geen telefoonnummers of e-mailadressen.
+  </p>
+
+  <p id="file-waarschuwing" class="melding" hidden style="background:#fee2e2;border-color:#dc2626">
+    Deze pagina is als bestand geopend. Opslaan werkt dan niet. Open hem via
+    <a href="http://localhost/vlodrop/importeer.html">http://localhost/vlodrop/importeer.html</a>.
+  </p>
+
+  <h2>1. Bedrijven en voorzieningen ophalen uit OpenStreetMap</h2>
+  <p>
+    OpenStreetMap is open data (licentie ODbL, bronvermelding verplicht). Dit haalt alle winkels, horeca,
+    zorg, onderwijs, bedrijven en voorzieningen in Vlodrop op die daar op staan.
+    Wat OpenStreetMap niet kent, vul je hieronder handmatig aan.
+  </p>
+  <button id="haal-op">Ophalen uit OpenStreetMap</button>
+  <div id="status"></div>
+  <div id="voorbeeld" hidden>
+    <h3>Gevonden per groep</h3>
+    <table id="samenvatting"></table>
+    <h3>Alle gevonden plekken (vink uit wat je niet wilt)</h3>
+    <div id="lijst"><table id="tabel"></table></div>
+    <p><button id="opslaan">Geselecteerde plekken opslaan in de database</button></p>
+    <div id="status2"></div>
+  </div>
+
+  <h2>2. Handmatig toevoegen (bijvoorbeeld iets dat je op Google Maps ziet)</h2>
+  <p>
+    Neem de gegevens over met eigen woorden of uit eigen kennis. Kopieer geen lijsten uit Google Maps.
+    Coordinaten vind je via openstreetmap.org (rechtermuisknop, Adres tonen) of met de knop hieronder.
+  </p>
+  <div class="rij">
+    <div><label for="m-naam">Naam</label><input id="m-naam"></div>
+    <div><label for="m-type">Soort (bijv. kapper, bakkerij)</label><input id="m-type" list="soorten"></div>
+    <datalist id="soorten"></datalist>
+  </div>
+  <div class="rij">
+    <div><label for="m-groep">Groep</label><select id="m-groep"></select></div>
+    <div><label for="m-adres">Adres (straat en huisnummer)</label><input id="m-adres"></div>
+  </div>
+  <div class="rij">
+    <div><label for="m-lat">Breedtegraad (lat)</label><input id="m-lat" placeholder="51.1332"></div>
+    <div><label for="m-lon">Lengtegraad (lon)</label><input id="m-lon" placeholder="6.0740"></div>
+  </div>
+  <p>
+    <button id="zoek-adres">Zoek coordinaten bij adres (PDOK)</button>
+    <button id="m-opslaan">Opslaan</button>
+  </p>
+  <div id="m-status"></div>
+
+  <script>
+    if (location.protocol === 'file:') document.getElementById('file-waarschuwing').hidden = false;
+
+    // ===== Woordenboek: OpenStreetMap-waarden naar Nederlandse soorten en groepen =====
+    const SHOP = {
+      supermarket: 'supermarkt', convenience: 'buurtwinkel', bakery: 'bakkerij', butcher: 'slager',
+      greengrocer: 'groenteboer', florist: 'bloemist', clothes: 'kledingwinkel', shoes: 'schoenenwinkel',
+      doityourself: 'bouwmarkt', garden_centre: 'tuincentrum', furniture: 'meubelwinkel',
+      electronics: 'elektronicawinkel', bicycle: 'fietsenwinkel', kiosk: 'kiosk', tobacco: 'tabakswinkel',
+      alcohol: 'slijterij', chemist: 'drogist', hardware: 'ijzerwaren', pet: 'dierenwinkel',
+      optician: 'opticien', jewelry: 'juwelier', books: 'boekenwinkel', gift: 'cadeauwinkel',
+      second_hand: 'tweedehandswinkel', variety_store: 'discountwinkel', general: 'algemene winkel',
+      car: 'autodealer', car_parts: 'autoonderdelen', farm: 'boerderijwinkel', deli: 'delicatessenwinkel',
+      confectionery: 'snoepwinkel', newsagent: 'krantenwinkel', stationery: 'kantoorboekhandel',
+      toys: 'speelgoedwinkel', sports: 'sportwinkel', mobile_phone: 'telefoonwinkel', fabric: 'stoffenwinkel'
+    };
+    const SHOP_DIENST = {   // 'shop' tags die eigenlijk een dienst zijn
+      hairdresser: 'kapper', beauty: 'schoonheidssalon', massage: 'massagesalon', tattoo: 'tattooshop',
+      car_repair: 'garage', laundry: 'wasserette', dry_cleaning: 'stomerij', copyshop: 'copyshop',
+      travel_agency: 'reisbureau', funeral_directors: 'uitvaartverzorger', locksmith: 'slotenmaker'
+    };
+    const AMENITY = {
+      // Horeca
+      restaurant: ['restaurant', 'Horeca'], cafe: ['caf\u00e9', 'Horeca'], bar: ['bar', 'Horeca'],
+      pub: ['kroeg', 'Horeca'], fast_food: ['snackbar', 'Horeca'], ice_cream: ['ijssalon', 'Horeca'],
+      biergarten: ['terras', 'Horeca'],
+      // Zorg
+      doctors: ['huisarts', 'Zorg'], dentist: ['tandarts', 'Zorg'], pharmacy: ['apotheek', 'Zorg'],
+      clinic: ['kliniek', 'Zorg'], veterinary: ['dierenarts', 'Zorg'], hospital: ['ziekenhuis', 'Zorg'],
+      nursing_home: ['verpleeghuis', 'Zorg'], social_facility: ['zorginstelling', 'Zorg'],
+      // Onderwijs
+      school: ['school', 'Onderwijs'], kindergarten: ['kinderdagverblijf', 'Onderwijs'],
+      childcare: ['kinderopvang', 'Onderwijs'], library: ['bibliotheek', 'Onderwijs'],
+      college: ['college', 'Onderwijs'], university: ['universiteit', 'Onderwijs'],
+      music_school: ['muziekschool', 'Onderwijs'],
+      // Diensten
+      bank: ['bank', 'Diensten'], atm: ['pinautomaat', 'Diensten'], post_office: ['postkantoor', 'Diensten'],
+      fuel: ['tankstation', 'Diensten'], car_wash: ['wasstraat', 'Diensten'],
+      car_rental: ['autoverhuur', 'Diensten'], charging_station: ['laadpunt', 'Diensten'],
+      // Religie
+      place_of_worship: ['kerk of kapel', 'Religie'],
+      // Voorzieningen
+      community_centre: ['buurthuis', 'Voorzieningen'], townhall: ['gemeentehuis', 'Voorzieningen'],
+      police: ['politie', 'Voorzieningen'], fire_station: ['brandweer', 'Voorzieningen'],
+      social_centre: ['ontmoetingsplek', 'Voorzieningen'], marketplace: ['markt', 'Voorzieningen'],
+      theatre: ['theater', 'Voorzieningen'], cinema: ['bioscoop', 'Voorzieningen'],
+      arts_centre: ['kunstcentrum', 'Voorzieningen']
+    };
+    const LEISURE = {
+      sports_centre: 'sportcentrum', fitness_centre: 'sportschool', swimming_pool: 'zwembad',
+      golf_course: 'golfbaan', stadium: 'stadion', horse_riding: 'manege', dance: 'dansschool',
+      bowling_alley: 'bowling', miniature_golf: 'minigolf', water_park: 'waterpark', sports_hall: 'sporthal',
+      marina: 'jachthaven'
+    };
+    const TOERISME = {
+      hotel: 'hotel', guest_house: 'pension', motel: 'motel', hostel: 'hostel', camp_site: 'camping',
+      caravan_site: 'caravanterrein', apartment: 'vakantieappartement', chalet: 'vakantiehuisje',
+      attraction: 'attractie', museum: 'museum', gallery: 'galerie'
+    };
+    const AMBACHT = {
+      carpenter: 'timmerman', electrician: 'elektricien', plumber: 'loodgieter', painter: 'schilder',
+      builder: 'bouwbedrijf', hvac: 'installateur', roofer: 'dakdekker', gardener: 'hovenier',
+      bakery: 'bakkerij', brewery: 'brouwerij', metal_construction: 'metaalbewerker',
+      shoemaker: 'schoenmaker', tailor: 'kleermaker', photographer: 'fotograaf', caterer: 'catering'
+    };
+    const GEBOUW_BEDRIJF = ['commercial', 'industrial', 'retail', 'office', 'warehouse'];
+
+    // Zet een OpenStreetMap-object om naar een plek, of geef null als het niet relevant is
+    function osmNaarPlek(el) {
+      const t = el.tags || {};
+      const lat = el.lat !== undefined ? el.lat : (el.center && el.center.lat);
+      const lon = el.lon !== undefined ? el.lon : (el.center && el.center.lon);
+      if (lat === undefined || lon === undefined) return null;
+
+      let type = null, groep = null;
+
+      if (t.shop) {
+        if (SHOP_DIENST[t.shop]) { type = SHOP_DIENST[t.shop]; groep = 'Diensten'; }
+        else { type = SHOP[t.shop] || 'winkel'; groep = 'Winkels'; }
+      } else if (t.amenity && AMENITY[t.amenity]) {
+        [type, groep] = AMENITY[t.amenity];
+      } else if (t.healthcare) {
+        type = 'zorgverlener'; groep = 'Zorg';
+      } else if (t.leisure && LEISURE[t.leisure] && (t.name || t.leisure !== 'swimming_pool')) {
+        type = LEISURE[t.leisure]; groep = 'Sport & recreatie';
+      } else if (t.tourism && TOERISME[t.tourism]) {
+        type = TOERISME[t.tourism]; groep = 'Verblijf & toerisme';
+      } else if (t.craft) {
+        type = AMBACHT[t.craft] || 'ambachtelijk bedrijf'; groep = 'Bedrijven';
+      } else if (t.office) {
+        if (t.office === 'company') { type = 'bedrijf'; groep = 'Bedrijven'; }
+        else { type = 'kantoor'; groep = 'Diensten'; }
+      } else if (t.industrial || (t.landuse === 'industrial' && t.name) || (t.man_made === 'works' && t.name)) {
+        type = 'industrie'; groep = 'Bedrijven';
+      } else if (t.building && GEBOUW_BEDRIJF.includes(t.building) && t.name) {
+        type = 'bedrijfspand'; groep = 'Bedrijven';
+      } else if (t.amenity && t.name && !['bench', 'parking', 'waste_basket', 'bicycle_parking', 'recycling',
+                 'shelter', 'toilets', 'drinking_water', 'post_box', 'telephone', 'clock', 'vending_machine',
+                 'bbq', 'fountain', 'give_box', 'waste_disposal', 'grit_bin', 'bicycle_repair_station',
+                 'parking_space', 'parking_entrance', 'hunting_stand', 'stage', 'table'].includes(t.amenity)) {
+        type = 'overig'; groep = 'Overig';   // bekende naam, onbekende soort
+      } else {
+        return null;
+      }
+
+      const naam = t.name || t.brand || t.operator || '(naam onbekend)';
+      const adres = [t['addr:street'], t['addr:housenumber']].filter(Boolean).join(' ');
+      const delen = [];
+      if (adres) delen.push('Adres: ' + adres + '.');
+      if (!t.name) delen.push('Naam niet vermeld in OpenStreetMap.');
+
+      const website = t.website || t['contact:website'] || '';
+      let wikipedia = '';
+      if (t.wikipedia && t.wikipedia.includes(':')) {
+        const [taal, titel] = [t.wikipedia.split(':')[0], t.wikipedia.split(':').slice(1).join(':')];
+        if (/^[a-z]{2,3}$/.test(taal)) wikipedia = 'https://' + taal + '.wikipedia.org/wiki/' + encodeURIComponent(titel.replace(/ /g, '_'));
+      }
+
+      return {
+        osm_id: el.type + '/' + el.id,
+        naam, type, groep, lat, lon, adres,
+        website: /^https?:\/\//i.test(website) ? website : '', wikipedia,
+        facebook: t['contact:facebook'] || '', instagram: t['contact:instagram'] || '',
+        linkedin: t['contact:linkedin'] || '', tiktok: t['contact:tiktok'] || '',
+        beschrijving: delen.join(' '),
+        bron_id: 21
+      };
+    }
+
+    // ===== Overpass-query: eerst op naam van de woonplaats, anders een kader om het dorp =====
+    function bouwQuery(gebied) {
+      const soorten = ['shop', 'amenity', 'craft', 'office', 'tourism', 'leisure', 'healthcare', 'industrial',
+        'man_made=works', 'landuse=industrial', 'building~"^(commercial|industrial|retail|office|warehouse)$"'];
+      const regels = soorten.map(s => {
+        const f = s.includes('=') || s.includes('~') ? '[' + s + ']' : '["' + s + '"]';
+        return '  nwr' + f + gebied + ';';
+      }).join('\n');
+      return '[out:json][timeout:25];\n(\n' + regels + '\n);\nout center tags;';
+    }
+    const QUERY_NAAM = '[out:json][timeout:25];\narea["name"="Vlodrop"]["boundary"="administrative"]->.a;\n'
+      + bouwQuery('(area.a)').split('\n').slice(1).join('\n');
+    const KADERS = ['(51.1230,6.0580,51.1420,6.0930)', '(51.1480,6.1400,51.1620,6.1640)'];  // dorp + Vlodrop-station
+    const QUERY_KADER = '[out:json][timeout:25];\n(\n' + KADERS.map(k => bouwQuery(k).split('\n').slice(2, -2).join('\n')).join('\n') + '\n);\nout center tags;';
+
+    // Meerdere Overpass-servers: is er een overbelast (fout 502/504/429), dan proberen we de volgende
+    const OVERPASS_SERVERS = [
+      'https://overpass-api.de/api/interpreter',
+      'https://overpass.private.coffee/api/interpreter',
+      'https://overpass.kumi.systems/api/interpreter',
+      'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+    ];
+
+    async function overpass(query) {
+      const status = document.getElementById('status');
+      let laatsteFout = null;
+      for (let i = 0; i < OVERPASS_SERVERS.length; i++) {
+        const server = OVERPASS_SERVERS[i];
+        status.textContent = 'Bezig met ophalen via server ' + (i + 1) + ' van ' + OVERPASS_SERVERS.length + '...';
+        try {
+          // Maximaal 25 seconden wachten per server, daarna de volgende proberen
+          const stopper = new AbortController();
+          const timer = setTimeout(() => stopper.abort(), 25000);
+          let antwoord;
+          try {
+            antwoord = await fetch(server, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: 'data=' + encodeURIComponent(query),
+              signal: stopper.signal
+            });
+          } finally {
+            clearTimeout(timer);
+          }
+          if (!antwoord.ok) throw new Error('status ' + antwoord.status);
+          const data = await antwoord.json();
+          return data.elements || [];
+        } catch (fout) {
+          laatsteFout = fout.name === 'AbortError' ? new Error('geen antwoord binnen 25 seconden') : fout;
+        }
+      }
+      throw new Error('Alle servers gaven een fout (laatste: ' + laatsteFout.message + '). Probeer het over een paar minuten opnieuw.');
+    }
+
+    let gevonden = [];
+
+    function toonVoorbeeld() {
+      const perGroep = {};
+      gevonden.forEach(p => { perGroep[p.groep] = (perGroep[p.groep] || 0) + 1; });
+      document.getElementById('samenvatting').innerHTML = '';
+      Object.keys(perGroep).sort().forEach(g => {
+        const rij = document.createElement('tr');
+        const a = document.createElement('td'); a.textContent = g;
+        const b = document.createElement('td'); b.textContent = perGroep[g];
+        rij.append(a, b);
+        document.getElementById('samenvatting').append(rij);
+      });
+
+      const tabel = document.getElementById('tabel');
+      tabel.replaceChildren();
+      gevonden.forEach((p, i) => {
+        const rij = document.createElement('tr');
+        const vink = document.createElement('input');
+        vink.type = 'checkbox'; vink.checked = true; vink.dataset.nummer = i;
+        vink.style.width = 'auto';
+        const c0 = document.createElement('td'); c0.append(vink);
+        const c1 = document.createElement('td'); c1.textContent = p.naam;
+        const c2 = document.createElement('td'); c2.textContent = p.type;
+        const c3 = document.createElement('td'); c3.textContent = p.groep;
+        rij.append(c0, c1, c2, c3);
+        tabel.append(rij);
+      });
+      document.getElementById('voorbeeld').hidden = false;
+    }
+
+    document.getElementById('haal-op').addEventListener('click', async () => {
+      const status = document.getElementById('status');
+      status.textContent = 'Bezig met ophalen (kan een halve minuut duren)...';
+      try {
+        let elementen = await overpass(QUERY_KADER);
+        let methode = 'kader rond het dorp en Vlodrop-station';
+        if (elementen.length === 0) {
+          elementen = await overpass(QUERY_NAAM);
+          methode = 'gebied Vlodrop';
+        }
+        const lijst = elementen.map(osmNaarPlek).filter(Boolean);
+        // dubbele osm_id's eruit
+        const gezien = new Set();
+        gevonden = lijst.filter(p => !gezien.has(p.osm_id) && gezien.add(p.osm_id));
+        gevonden.sort((a, b) => a.groep.localeCompare(b.groep) || a.naam.localeCompare(b.naam));
+        status.textContent = gevonden.length + ' plekken gevonden (' + methode + ').';
+        toonVoorbeeld();
+      } catch (fout) {
+        status.textContent = 'Mislukt: ' + fout.message;
+      }
+    });
+
+    async function stuur(plekken) {
+      const antwoord = await fetch('importeer.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plekken })
+      });
+      return antwoord.json();
+    }
+
+    document.getElementById('opslaan').addEventListener('click', async () => {
+      const gekozen = [...document.querySelectorAll('#tabel input:checked')]
+        .map(v => gevonden[Number(v.dataset.nummer)]);
+      const status = document.getElementById('status2');
+      status.textContent = 'Bezig met opslaan...';
+      const uitkomst = await stuur(gekozen);
+      status.textContent = uitkomst.fout
+        ? 'Fout: ' + uitkomst.fout
+        : uitkomst.opgeslagen + ' opgeslagen, ' + uitkomst.overgeslagen + ' overgeslagen. Open nu de kaart.';
+    });
+
+    // ===== Handmatig toevoegen =====
+    fetch('api.php?types=1').then(a => a.json()).then(rijen => {
+      if (!Array.isArray(rijen)) return;
+      const groepen = [...new Set(rijen.map(r => r.groep).concat(
+        ['Winkels', 'Horeca', 'Zorg', 'Onderwijs', 'Diensten', 'Sport & recreatie', 'Voorzieningen',
+         'Religie', 'Erfgoed', 'Bedrijven', 'Verblijf & toerisme', 'Overig']))].sort();
+      groepen.forEach(g => {
+        const o = document.createElement('option'); o.value = g; o.textContent = g;
+        document.getElementById('m-groep').append(o);
+      });
+      rijen.forEach(r => {
+        const o = document.createElement('option'); o.value = r.type;
+        document.getElementById('soorten').append(o);
+      });
+    }).catch(() => {});
+
+    document.getElementById('zoek-adres').addEventListener('click', async () => {
+      const status = document.getElementById('m-status');
+      const adres = document.getElementById('m-adres').value.trim();
+      if (!adres) { status.textContent = 'Vul eerst een adres in.'; return; }
+      try {
+        const url = 'https://api.pdok.nl/bzk/locatieserver/search/v3_1/free?rows=1&fl=centroide_ll,weergavenaam&q='
+          + encodeURIComponent(adres + ' Vlodrop');
+        const data = await (await fetch(url)).json();
+        const doc = data.response && data.response.docs && data.response.docs[0];
+        const m = doc && /POINT\(([-\d.]+) ([-\d.]+)\)/.exec(doc.centroide_ll || '');
+        if (!m) { status.textContent = 'Geen adres gevonden. Vul de coordinaten zelf in.'; return; }
+        document.getElementById('m-lon').value = m[1];
+        document.getElementById('m-lat').value = m[2];
+        status.textContent = 'Gevonden: ' + doc.weergavenaam + '. Controleer of dit klopt.';
+      } catch (fout) {
+        status.textContent = 'Zoeken mislukt. Vul de coordinaten zelf in.';
+      }
+    });
+
+    document.getElementById('m-opslaan').addEventListener('click', async () => {
+      const status = document.getElementById('m-status');
+      const adres = document.getElementById('m-adres').value.trim();
+      const plek = {
+        naam: document.getElementById('m-naam').value,
+        type: document.getElementById('m-type').value,
+        groep: document.getElementById('m-groep').value || 'Overig',
+        lat: document.getElementById('m-lat').value.replace(',', '.'),
+        lon: document.getElementById('m-lon').value.replace(',', '.'),
+        beschrijving: adres ? 'Adres: ' + adres + '.' : '',
+        bron_id: 22
+      };
+      const uitkomst = await stuur([plek]);
+      status.textContent = uitkomst.fout ? 'Fout: ' + uitkomst.fout
+        : (uitkomst.opgeslagen === 1 ? 'Opgeslagen.' : 'Niet opgeslagen: controleer naam, soort en coordinaten.');
+    });
+  </script>
+</body>
+</html>
